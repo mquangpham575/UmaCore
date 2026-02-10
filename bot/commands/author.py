@@ -89,7 +89,7 @@ class AuthorCommands(commands.Cog):
                 inline=False
             )
 
-            # Per-club breakdown
+            # Per-club breakdown — chunked to stay within the 1024-char field value limit
             if club_breakdown:
                 lines = []
                 for club in club_breakdown:
@@ -102,11 +102,15 @@ class AuthorCommands(commands.Cog):
                         line += f" · 💣 {club['active_bombs']}"
                     lines.append(line)
 
-                embed.add_field(
-                    name="🏆 Clubs",
-                    value="\n".join(lines),
-                    inline=False
-                )
+                chunk_size = 15
+                for chunk_idx in range(0, len(lines), chunk_size):
+                    chunk = lines[chunk_idx:chunk_idx + chunk_size]
+                    field_name = "🏆 Clubs" if chunk_idx == 0 else "🏆 Clubs (continued)"
+                    embed.add_field(
+                        name=field_name,
+                        value="\n".join(chunk),
+                        inline=False
+                    )
 
             # Server list (capped at 20 to stay within field value limits)
             if self.bot.guilds:
