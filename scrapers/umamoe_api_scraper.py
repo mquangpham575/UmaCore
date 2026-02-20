@@ -25,6 +25,10 @@ class UmaMoeAPIScraper(BaseScraper):
         # Set to a date object when the scraper fell back to the previous month;
         # None when the fetched data matches the current calendar date.
         self._data_date: Optional[date] = None
+        # Club/monthly rank fields from the API response (nested inside "circle" key)
+        self._monthly_rank: Optional[int] = None
+        self._last_month_rank: Optional[int] = None
+        self._yesterday_rank: Optional[int] = None
         super().__init__(self.base_url)
     
     async def _fetch_month(self, session: aiohttp.ClientSession, year: int, month: int) -> Optional[dict]:
@@ -92,6 +96,21 @@ class UmaMoeAPIScraper(BaseScraper):
                     else:
                         logger.warning("Could not fetch current month for endpoint correction — using previous month's last snapshot")
             
+            # Extract club ranks from the "circle" sub-object.
+            # On Day 1 prefer the current-month endpoint (more timely), fall back to primary.
+            # Note: the top-level "club_rank" field is a tier bracket (not a position rank);
+            # the actual position ranks live inside response["circle"].
+            rank_source = (endpoint_data if (now.day == 1 and endpoint_data) else primary_data) or {}
+            circle_data = rank_source.get("circle") or {}
+            self._monthly_rank = circle_data.get("monthly_rank")
+            self._last_month_rank = circle_data.get("last_month_rank")
+            self._yesterday_rank = circle_data.get("yesterday_rank")
+            logger.info(
+                f"Club ranks: monthly_rank={self._monthly_rank}, "
+                f"last_month_rank={self._last_month_rank}, "
+                f"yesterday_rank={self._yesterday_rank}"
+            )
+
             if not primary_data or "members" not in primary_data:
                 logger.error("API response missing 'members' field")
                 raise ValueError("Invalid API response structure")
@@ -270,3 +289,15 @@ class UmaMoeAPIScraper(BaseScraper):
         or None when the data matches today.
         """
         return self._data_date
+
+    def get_monthly_rank(self) -> Optional[int]:
+        """Return the club's current monthly position rank (from circle.monthly_rank)."""
+        return self._monthly_rank
+
+    def get_last_month_rank(self) -> Optional[int]:
+        """Return the club's previous month position rank (from circle.last_month_rank)."""
+        return self._last_month_rank
+
+    def get_yesterday_rank(self) -> Optional[int]:
+        """Return the club's rank as of yesterday (from circle.yesterday_rank)."""
+        return self._yesterday_rank

@@ -8,7 +8,7 @@ import logging
 import pytz
 import asyncio
 
-from models import Club, Member
+from models import Club, Member, ClubRankHistory
 from scrapers import ChronoGenesisScraper, UmaMoeAPIScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, NotificationService, ScrapeLockManager, ScrapeContext
 from config.settings import USE_UMAMOE_API
@@ -205,6 +205,30 @@ class BotTasks:
                     current_date = data_date
                     logger.info(f"Using scraper's data date: {current_date} (previous-month fallback)")
 
+                # Extract and persist club rank data (Uma.moe API only)
+                rank_data = None
+                if isinstance(scraper, UmaMoeAPIScraper):
+                    monthly_rank = scraper.get_monthly_rank()
+                    last_month_rank = scraper.get_last_month_rank()
+                    yesterday_rank = scraper.get_yesterday_rank()
+
+                    if monthly_rank is not None:
+                        try:
+                            await ClubRankHistory.save(club.club_id, current_date, monthly_rank, monthly_rank)
+                        except Exception as e:
+                            logger.error(f"Failed to save rank data for {club.club_name}: {e}", exc_info=True)
+
+                        rank_data = {
+                            'monthly_rank': monthly_rank,
+                            'last_month_rank': last_month_rank,
+                            'yesterday_rank': yesterday_rank,
+                        }
+                        logger.info(
+                            f"Rank data for {club.club_name}: "
+                            f"monthly={monthly_rank}, yesterday={yesterday_rank}, "
+                            f"last_month={last_month_rank}"
+                        )
+
                 # STEP 4: Process the scraped data
                 try:
                     logger.info(f"⚙️ Processing scraped data for {club.club_name}...")
@@ -289,7 +313,8 @@ class BotTasks:
                         bombs_data = []
 
                     daily_reports = self.report_generator.create_daily_report(
-                        club.club_name, club.daily_quota, status_summary, bombs_data, current_date
+                        club.club_name, club.daily_quota, status_summary, bombs_data, current_date,
+                        rank_data=rank_data
                     )
 
                     for embed in daily_reports:

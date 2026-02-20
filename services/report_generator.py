@@ -2,7 +2,7 @@
 Discord report generation service
 """
 from datetime import date
-from typing import Dict, List
+from typing import Dict, List, Optional
 import discord
 import logging
 
@@ -29,7 +29,8 @@ class ReportGenerator:
         return str(num)
 
     def create_daily_report(self, club_name: str, daily_quota: int, status_summary: Dict,
-                            bombs_data: List[Dict], report_date: date) -> List[discord.Embed]:
+                            bombs_data: List[Dict], report_date: date,
+                            rank_data: Optional[Dict] = None) -> List[discord.Embed]:
         """
         Create the main daily report embeds.
 
@@ -68,6 +69,14 @@ class ReportGenerator:
             value=summary_text,
             inline=False
         )
+
+        if rank_data:
+            rank_text = self._format_rank_section(rank_data)
+            summary_embed.add_field(
+                name="🏆 Club Rankings",
+                value=rank_text,
+                inline=False
+            )
 
         summary_embed.set_footer(text=f"Umamusume Quota Tracker - {club_name}")
         embeds.append(summary_embed)
@@ -183,6 +192,37 @@ class ReportGenerator:
             )
 
         return "\n".join(lines) if lines else "*No active bombs*"
+
+    def _format_rank_section(self, rank_data: Dict) -> str:
+        """Format the club/monthly rank lines for the summary embed."""
+        monthly_rank = rank_data.get('monthly_rank')
+        last_month_rank = rank_data.get('last_month_rank')
+        yesterday_rank = rank_data.get('yesterday_rank')
+
+        lines = []
+
+        # Club Rank line — delta vs yesterday (available directly from API)
+        if monthly_rank is not None:
+            if yesterday_rank is not None:
+                delta = yesterday_rank - monthly_rank  # positive = improved (lower number = better)
+                if delta > 0:
+                    change = f"(↑{delta} since yesterday)"
+                elif delta < 0:
+                    change = f"(↓{abs(delta)} since yesterday)"
+                else:
+                    change = "(no change)"
+                lines.append(f"Club Rank: #{monthly_rank} {change}")
+            else:
+                lines.append(f"Club Rank: #{monthly_rank}")
+
+        # Monthly Rank line — last month comparison comes directly from the API
+        if monthly_rank is not None:
+            monthly_line = f"Monthly Rank: #{monthly_rank}"
+            if last_month_rank is not None:
+                monthly_line += f" | Last Month: #{last_month_rank}"
+            lines.append(monthly_line)
+
+        return "\n".join(lines) if lines else "*No rank data available*"
 
     def create_kick_alert(self, club_name: str, members_to_kick: List) -> List[discord.Embed]:
         """
