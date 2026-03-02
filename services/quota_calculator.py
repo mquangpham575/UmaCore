@@ -274,29 +274,34 @@ class QuotaCalculator:
         logger.info(f"Processed {updated_members} members ({new_members} new) for club {club_id}")
         return new_members, updated_members
     
-    async def _calculate_days_behind(self, member_id: UUID, current_deficit_surplus: int, 
+    async def _calculate_days_behind(self, member_id: UUID, current_deficit_surplus: int,
                                     data_date: date) -> int:
         """Calculate how many consecutive days a member has been behind"""
         if current_deficit_surplus >= 0:
             return 0
-        
+
         recent_history = await QuotaHistory.get_last_n_days(member_id, 10)
-        
+
         if not recent_history:
             return 1
-        
-        # Exclude any records from data_date or later
-        recent_history = [h for h in recent_history if h.date < data_date]
-        
+
+        # Exclude records from data_date or later, and from a different month
+        recent_history = [
+            h for h in recent_history
+            if h.date < data_date
+            and h.date.year == data_date.year
+            and h.date.month == data_date.month
+        ]
+
         # Count consecutive days with negative deficit before data_date
         consecutive_days = 1  # Count the current day
-        
+
         for history in recent_history:
             if history.deficit_surplus < 0:
                 consecutive_days += 1
             else:
                 break
-        
+
         logger.debug(f"Member {member_id}: {consecutive_days} consecutive days behind")
         return consecutive_days
     

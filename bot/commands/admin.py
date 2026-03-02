@@ -635,6 +635,146 @@ class AdminCommands(commands.Cog):
             logger.error(f"Error in bomb_status: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
+    @app_commands.command(name="recalculate", description="Recalculate days-behind counts and bomb statuses from current history without clearing data")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def recalculate(self, interaction: discord.Interaction, club: str):
+        """Recalculate days_behind and bombs based on existing quota history"""
+        await interaction.response.defer()
+
+        try:
+            club_obj = await Club.get_by_name(club)
+            if not club_obj:
+                await interaction.followup.send(f"❌ Club '{club}' not found")
+                return
+
+            if not club_obj.belongs_to_guild(interaction.guild_id):
+                await interaction.followup.send(f"❌ Club '{club}' is not registered in this server.")
+                return
+
+            from config.database import db as _db
+
+            club_tz = pytz.timezone(club_obj.timezone)
+            current_date = datetime.now(club_tz).date()
+
+            await interaction.followup.send(f"🔄 Recalculating for {club}...")
+
+            # Step 1: Recalculate days_behind for all members in the current month.
+            # Walk each member's history in date order and track consecutive deficit days.
+            members = await Member.get_all_active(club_obj.club_id)
+            updated_entries = 0
+
+            for member in members:
+                rows = await _db.fetch(
+                    """
+                    SELECT id, date, deficit_surplus
+                    FROM quota_history
+                    WHERE member_id = $1
+                      AND date_part('year', date) = $2
+                      AND date_part('month', date) = $3
+                    ORDER BY date ASC
+                    """,
+                    member.member_id, current_date.year, current_date.month
+                )
+
+                consecutive = 0
+                for row in rows:
+                    if row['deficit_surplus'] < 0:
+                        consecutive += 1
+                    else:
+                        consecutive = 0
+                    await _db.execute(
+                        "UPDATE quota_history SET days_behind = $1 WHERE id = $2",
+                        consecutive, row['id']
+                    )
+                    updated_entries += 1
+
+            # Step 2: Deactivate all current bombs and re-evaluate from scratch.
+            await _db.execute(
+                "UPDATE bombs SET is_active = FALSE, deactivation_date = $1 WHERE club_id = $2 AND is_active = TRUE",
+                current_date, club_obj.club_id
+            )
+            newly_activated = await self.bomb_manager.check_and_activate_bombs(club_obj, current_date)
+
+            embed = discord.Embed(
+                title=f"✅ Recalculation Complete - {club}",
+                description=(
+                    f"**History entries updated:** {updated_entries}\n"
+                    f"**Bombs cleared and re-evaluated**\n"
+                    f"**Bombs re-activated:** {len(newly_activated)}\n\n"
+                    "Days-behind counts and bomb statuses now reflect current data.\n"
+                    "Run `/force_check` to generate a fresh report."
+                ),
+                color=discord.Color.green(),
+                timestamp=discord.utils.utcnow()
+            )
+            if newly_activated:
+                reactivated_names = []
+                for bomb in newly_activated:
+                    member = await Member.get_by_id(bomb.member_id)
+                    if member:
+                        reactivated_names.append(member.trainer_name)
+                embed.add_field(
+                    name="💣 Re-activated Bombs",
+                    value="\n".join(reactivated_names) or "None",
+                    inline=False
+                )
+            embed.set_footer(text=f"Recalculated by {interaction.user}")
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Recalculation performed for {club} by {interaction.user}: "
+                        f"{updated_entries} entries updated, {len(newly_activated)} bombs re-activated")
+
+        except Exception as e:
+            logger.error(f"Error in recalculate: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}")
+
+    @app_commands.command(name="reset_month", description="Manually trigger monthly reset: clears all history, bombs, and quota requirements")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def reset_month(self, interaction: discord.Interaction, club: str):
+        """Manually reset all monthly data for a club (for use when auto-reset fails)"""
+        await interaction.response.defer()
+
+        try:
+            club_obj = await Club.get_by_name(club)
+            if not club_obj:
+                await interaction.followup.send(f"❌ Club '{club}' not found")
+                return
+
+            if not club_obj.belongs_to_guild(interaction.guild_id):
+                await interaction.followup.send(f"❌ Club '{club}' is not registered in this server.")
+                return
+
+            from config.database import db as _db
+
+            await _db.execute("DELETE FROM quota_history WHERE club_id = $1", club_obj.club_id)
+            await _db.execute("DELETE FROM bombs WHERE club_id = $1", club_obj.club_id)
+            await _db.execute("DELETE FROM quota_requirements WHERE club_id = $1", club_obj.club_id)
+            await _db.execute(
+                "UPDATE members SET manually_deactivated = FALSE WHERE club_id = $1 AND manually_deactivated = TRUE",
+                club_obj.club_id
+            )
+
+            embed = discord.Embed(
+                title=f"🔄 Monthly Reset Complete - {club}",
+                description=(
+                    "All monthly data has been cleared.\n\n"
+                    "**Cleared:**\n"
+                    "• All quota history\n"
+                    "• All active bombs\n"
+                    "• All quota requirements\n"
+                    "• Manual deactivation flags\n\n"
+                    f"Run `/force_check club:{club}` to populate fresh data."
+                ),
+                color=discord.Color.orange(),
+                timestamp=discord.utils.utcnow()
+            )
+            embed.set_footer(text=f"Reset by {interaction.user}")
+            await interaction.followup.send(embed=embed)
+            logger.warning(f"Manual monthly reset performed for {club} by {interaction.user}")
+
+        except Exception as e:
+            logger.error(f"Error in reset_month: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}")
+
     # Register autocomplete for all club arguments
     set_quota.autocomplete('club')(club_autocomplete)
     update_monthly_info.autocomplete('club')(club_autocomplete)
@@ -644,6 +784,8 @@ class AdminCommands(commands.Cog):
     deactivate_member.autocomplete('club')(club_autocomplete)
     activate_member.autocomplete('club')(club_autocomplete)
     bomb_status.autocomplete('club')(club_autocomplete)
+    recalculate.autocomplete('club')(club_autocomplete)
+    reset_month.autocomplete('club')(club_autocomplete)
 
 
 async def setup(bot):

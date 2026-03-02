@@ -35,7 +35,7 @@ class BombManager:
                 continue
             
             consecutive_days = await QuotaHistory.check_consecutive_behind_days(
-                member.member_id, club.bomb_trigger_days
+                member.member_id, club.bomb_trigger_days, current_date
             )
             
             if consecutive_days >= club.bomb_trigger_days:

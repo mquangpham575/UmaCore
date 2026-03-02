@@ -178,10 +178,41 @@ class UmaMoeAPIScraper(BaseScraper):
                         break
             
             if not data_exists:
-                # Current day data not available yet, use previous day
-                current_day = now.day - 1
-                logger.warning(f"Current day {now.day} data not available yet (Uma.moe updates ~15:10 UTC). Using day {current_day} data.")
-                self._data_date = date(now.year, now.month, current_day)
+                fallback_day = now.day - 1
+                fallback_idx = fallback_day - 1   # 0-based index for fallback day
+                prev_idx = fallback_day - 2       # 0-based index for the day before that
+
+                # When falling back past day 1, verify the fallback data is genuinely fresh.
+                # Uma.moe sometimes copies the previous day's values as a placeholder before
+                # publishing the real update (~15:10 UTC). Detect this: if no member shows
+                # fan growth between day fallback_day-1 and fallback_day, it's stale.
+                if fallback_day >= 2 and prev_idx >= 0:
+                    relevant = [
+                        m for m in members
+                        if len(m.get("daily_fans", [])) > fallback_idx
+                        and len(m.get("daily_fans", [])) > prev_idx
+                        and m["daily_fans"][fallback_idx] > 0
+                    ]
+                    any_growth = any(
+                        m["daily_fans"][fallback_idx] > m["daily_fans"][prev_idx]
+                        for m in relevant
+                    )
+                    if relevant and not any_growth:
+                        raise ValueError(
+                            f"Day {fallback_day} data appears stale — fan counts are unchanged from "
+                            f"day {fallback_day - 1} for all sampled members. "
+                            f"Uma.moe likely hasn't published today's update yet (typically ~15:10 UTC)."
+                        )
+
+                current_day = fallback_day
+                logger.warning(
+                    f"Current day {now.day} data not available yet (Uma.moe updates ~15:10 UTC). "
+                    f"Using day {current_day} data."
+                )
+                # Slot 'current_day' (index current_day-1) holds competition results from
+                # day current_day-1 (published the following day at ~15:10 UTC).
+                # Use that competition date so expected quota is calculated correctly.
+                self._data_date = date(now.year, now.month, max(1, current_day - 1))
             else:
                 # Current day data exists (Day 5 on Feb 5 = Feb 4 competition)
                 # current_day = day number to read from array

@@ -84,31 +84,57 @@ class QuotaHistory:
         return [cls(**dict(row)) for row in rows]
     
     @classmethod
-    async def check_consecutive_behind_days(cls, member_id: UUID, check_days: int) -> int:
+    async def check_consecutive_behind_days(cls, member_id: UUID, check_days: int, current_date: date = None) -> int:
         """
-        Check how many consecutive days a member has been behind quota
+        Check how many consecutive days a member has been behind quota.
+        Only counts days within the same month as current_date to avoid
+        February history carrying over into March.
         Returns: number of consecutive days behind (0 if currently on track)
         """
-        query = """
-            WITH recent_days AS (
-                SELECT date, deficit_surplus
-                FROM quota_history
-                WHERE member_id = $1
-                ORDER BY date DESC
-                LIMIT $2
-            )
-            SELECT COUNT(*) as consecutive_behind
-            FROM (
-                SELECT date, deficit_surplus,
-                       ROW_NUMBER() OVER (ORDER BY date DESC) as rn
-                FROM recent_days
-                WHERE deficit_surplus < 0
-                ORDER BY date DESC
-            ) sub
-            WHERE rn <= $2
-            AND (SELECT deficit_surplus FROM recent_days ORDER BY date DESC LIMIT 1) < 0
-        """
-        result = await db.fetchval(query, member_id, check_days)
+        if current_date is not None:
+            query = """
+                WITH recent_days AS (
+                    SELECT date, deficit_surplus
+                    FROM quota_history
+                    WHERE member_id = $1
+                      AND date_part('year', date) = date_part('year', $3::date)
+                      AND date_part('month', date) = date_part('month', $3::date)
+                    ORDER BY date DESC
+                    LIMIT $2
+                )
+                SELECT COUNT(*) as consecutive_behind
+                FROM (
+                    SELECT date, deficit_surplus,
+                           ROW_NUMBER() OVER (ORDER BY date DESC) as rn
+                    FROM recent_days
+                    WHERE deficit_surplus < 0
+                    ORDER BY date DESC
+                ) sub
+                WHERE rn <= $2
+                AND (SELECT deficit_surplus FROM recent_days ORDER BY date DESC LIMIT 1) < 0
+            """
+            result = await db.fetchval(query, member_id, check_days, current_date)
+        else:
+            query = """
+                WITH recent_days AS (
+                    SELECT date, deficit_surplus
+                    FROM quota_history
+                    WHERE member_id = $1
+                    ORDER BY date DESC
+                    LIMIT $2
+                )
+                SELECT COUNT(*) as consecutive_behind
+                FROM (
+                    SELECT date, deficit_surplus,
+                           ROW_NUMBER() OVER (ORDER BY date DESC) as rn
+                    FROM recent_days
+                    WHERE deficit_surplus < 0
+                    ORDER BY date DESC
+                ) sub
+                WHERE rn <= $2
+                AND (SELECT deficit_surplus FROM recent_days ORDER BY date DESC LIMIT 1) < 0
+            """
+            result = await db.fetchval(query, member_id, check_days)
         return result or 0
     
     @classmethod
