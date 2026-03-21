@@ -244,7 +244,8 @@ class QuotaCalculator:
                         continue
                     else:
                         await member.activate()
-                        logger.info(f"Reactivated returning member: {trainer_name}")
+                        await member.update_join_date(data_date)
+                        logger.info(f"Reactivated returning member: {trainer_name} (join_date reset to {data_date})")
             
             # last_seen tracks when we actually observed them (wall-clock date)
             await member.update_last_seen(current_date)

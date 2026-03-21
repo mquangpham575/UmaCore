@@ -7,7 +7,7 @@ from discord.ext import commands
 from datetime import date as date_class
 import logging
 
-from models import Member, QuotaHistory, Bomb, UserLink, Club
+from models import Member, QuotaHistory, Bomb, UserLink, Club, QuotaRequirement
 
 logger = logging.getLogger(__name__)
 
@@ -279,10 +279,13 @@ class MemberCommands(commands.Cog):
         
         active_bomb = await Bomb.get_active_for_member(member.member_id)
         
-        # Get club info for daily quota
+        # Get club info and effective quota
         from models import Club
         club = await Club.get_by_id(member.club_id)
-        daily_quota = club.daily_quota if club else 1000000
+        if club:
+            daily_quota = await QuotaRequirement.get_quota_for_date(club.club_id, date_class.today())
+        else:
+            daily_quota = 1000000
         
         # Determine color based on status
         if active_bomb:
@@ -408,7 +411,8 @@ class MemberCommands(commands.Cog):
         # Recommendations
         if latest_history.deficit_surplus < 0:
             deficit = abs(latest_history.deficit_surplus)
-            recommended_daily = daily_quota + (deficit // max(1, 7 - latest_history.days_behind))
+            catchup_days = (club.bomb_countdown_days - latest_history.days_behind) if club else 7
+            recommended_daily = daily_quota + (deficit // max(1, catchup_days))
             
             embed.add_field(
                 name="💡 To Catch Up",

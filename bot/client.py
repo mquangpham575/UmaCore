@@ -33,7 +33,8 @@ class UmamusumeBot(commands.Bot):
         """Called when the bot is starting up"""
         # Load commands cog
         await self.load_extension('bot.commands')
-        
+        # await self.load_extension('events.commands')  # disabled
+
         # Sync slash commands
         await self.tree.sync()
         

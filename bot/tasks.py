@@ -8,7 +8,7 @@ import logging
 import pytz
 import asyncio
 
-from models import Club, Member, ClubRankHistory
+from models import Club, Member, ClubRankHistory, QuotaRequirement
 from scrapers import ChronoGenesisScraper, UmaMoeAPIScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, NotificationService, ScrapeLockManager, ScrapeContext
 from config.settings import USE_UMAMOE_API
@@ -317,8 +317,9 @@ class BotTasks:
                     else:
                         bombs_data = []
 
+                    effective_quota = await QuotaRequirement.get_quota_for_date(club.club_id, current_date)
                     daily_reports = self.report_generator.create_daily_report(
-                        club.club_name, club.daily_quota, status_summary, bombs_data, current_date,
+                        club.club_name, effective_quota, status_summary, bombs_data, current_date,
                         rank_data=rank_data, quota_period=club.quota_period
                     )
 

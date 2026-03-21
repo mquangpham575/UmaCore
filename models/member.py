@@ -135,3 +135,14 @@ class Member:
         self.is_active = True
         self.manually_deactivated = False
         logger.info(f"Activated member: {self.trainer_name}")
+
+    async def update_join_date(self, new_join_date: date):
+        """Update join date (used when a member rejoins mid-month)"""
+        query = """
+            UPDATE members
+            SET join_date = $1, updated_at = NOW()
+            WHERE member_id = $2
+        """
+        await db.execute(query, new_join_date, self.member_id)
+        self.join_date = new_join_date
+        logger.info(f"Updated join date for {self.trainer_name} to {new_join_date}")
