@@ -60,9 +60,11 @@ class NotificationService:
                     inline=False
                 )
                 
+                extra_per_day = -(-deficit // bomb.days_remaining)  # ceiling division
                 embed.add_field(
                     name="💡 What to do",
-                    value=f"Earn **{deficit + (latest_history.expected_fans // latest_history.days_behind):,}+ fans per day** to catch up and deactivate the bomb!",
+                    value=f"You need **{deficit:,} more fans** to catch up.\n"
+                          f"Earn ~**{extra_per_day:,} extra fans/day** on top of your quota over the next {bomb.days_remaining} days to deactivate the bomb!",
                     inline=False
                 )
                 
