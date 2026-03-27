@@ -1,6 +1,7 @@
 """
 Chart commands for visualizing member fan progression
 """
+import calendar
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -9,9 +10,66 @@ import math
 import logging
 from datetime import date, datetime
 import pytz
+import aiohttp
 
-from models import Club, QuotaHistory
+from models import Club, QuotaHistory, QuotaRequirement
 from scrapers import UmaMoeAPIScraper
+
+UMAMOE_API_URL = "https://uma.moe/api/v4/circles"
+
+
+async def _fetch_previous_month_totals(circle_id: str, year: int, month: int) -> list[dict]:
+    """
+    Fetch last month's final fan totals for each member directly from the API.
+
+    Returns a list of dicts sorted by fans desc:
+        {name, fans, joined_mid_month}
+    where `fans` is the member's total fans earned that month and
+    `joined_mid_month` is True if they weren't in the club on day 1.
+    """
+    params = {"circle_id": circle_id, "year": year, "month": month}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            UMAMOE_API_URL,
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as resp:
+            if resp.status != 200:
+                raise ValueError(f"Uma.moe API returned HTTP {resp.status}")
+            data = await resp.json()
+
+    members = data.get("members", [])
+    results = []
+
+    for m in members:
+        name = m.get("trainer_name")
+        lifetime_fans: list[int] = m.get("daily_fans", [])
+        if not name or not lifetime_fans:
+            continue
+
+        # Find first and last non-zero values
+        starting_fans = None
+        final_fans = None
+        joined_mid_month = False
+
+        for i, val in enumerate(lifetime_fans):
+            if val > 0:
+                if starting_fans is None:
+                    starting_fans = val
+                    joined_mid_month = (i > 0)
+                final_fans = val  # keep updating to get the last non-zero
+
+        if starting_fans is None or final_fans is None:
+            continue  # never active this month
+
+        results.append({
+            "name": name,
+            "fans": final_fans - starting_fans,
+            "joined_mid_month": joined_mid_month,
+        })
+
+    results.sort(key=lambda x: x["fans"], reverse=True)
+    return results
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +306,151 @@ class ChartCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     progress_chart.autocomplete("club")(club_autocomplete)
+
+    @app_commands.command(
+        name="previous_month",
+        description="View last month's fan stats for all members"
+    )
+    async def previous_month(self, interaction: discord.Interaction, club: str, quota: int = None):
+        """Show a full recap of last month's quota performance fetched directly from the API.
+
+        quota: Override the monthly quota target (optional — useful if the DB value is stale
+               after a reset deleted last month's quota history).
+        """
+        await interaction.response.defer()
+
+        try:
+            club_obj = await Club.get_by_name(club)
+            if not club_obj:
+                await interaction.followup.send(f"❌ Club '{club}' not found.")
+                return
+
+            if not club_obj.belongs_to_guild(interaction.guild_id):
+                await interaction.followup.send(
+                    f"❌ Club '{club}' is not registered in this server."
+                )
+                return
+
+            if not club_obj.circle_id or not club_obj.is_circle_id_valid():
+                await interaction.followup.send(
+                    f"❌ **{club}** has no valid circle ID — this command requires the Uma.moe API."
+                )
+                return
+
+            club_tz = pytz.timezone(club_obj.timezone)
+            now = datetime.now(club_tz)
+
+            # Determine previous month
+            if now.month == 1:
+                prev_year, prev_month = now.year - 1, 12
+            else:
+                prev_year, prev_month = now.year, now.month - 1
+
+            days_in_month = calendar.monthrange(prev_year, prev_month)[1]
+            month_label = datetime(prev_year, prev_month, 1).strftime("%B %Y")
+
+            results = await _fetch_previous_month_totals(
+                club_obj.circle_id, prev_year, prev_month
+            )
+
+            if not results:
+                await interaction.followup.send(
+                    f"❌ No data found for **{club}** in {month_label}."
+                )
+                return
+
+            # Determine monthly target
+            if quota is not None:
+                # User explicitly provided the quota — use it directly as the monthly total
+                monthly_target = quota
+                quota_source = f"provided ({quota:,})"
+            else:
+                # Try DB — may fall back to club default if reset_month wiped the history
+                last_day = date(prev_year, prev_month, days_in_month)
+                daily_quota = await QuotaRequirement.get_quota_for_date(club_obj.club_id, last_day)
+                monthly_target = daily_quota * days_in_month
+                quota_source = f"from DB ({daily_quota:,}/day × {days_in_month}d)"
+
+            # Compute summary stats
+            hit_quota = [m for m in results if m["fans"] >= monthly_target]
+            total_club_fans = sum(m["fans"] for m in results)
+
+            def fmt(v: int) -> str:
+                if v >= 1_000_000_000:
+                    return f"{v / 1_000_000_000:.2f}B"
+                elif v >= 1_000_000:
+                    return f"{v / 1_000_000:.1f}M"
+                elif v >= 1_000:
+                    return f"{v / 1_000:.1f}K"
+                return str(v)
+
+            embed = discord.Embed(
+                title=f"📊 {month_label} — {club}",
+                color=0x6366F1,
+                timestamp=discord.utils.utcnow(),
+            )
+
+            embed.add_field(
+                name="📅 Month Overview",
+                value=(
+                    f"**Days:** {days_in_month}\n"
+                    f"**Monthly target:** {fmt(monthly_target)} *({quota_source})*\n"
+                    f"**Club total:** {fmt(total_club_fans)}\n"
+                    f"**Quota achieved:** {len(hit_quota)}/{len(results)} members"
+                ),
+                inline=False,
+            )
+
+            if results:
+                top = results[0]
+                diff = top["fans"] - monthly_target
+                diff_str = f"+{fmt(diff)}" if diff >= 0 else f"-{fmt(abs(diff))}"
+                embed.add_field(
+                    name="🏆 Top Performer",
+                    value=f"**{top['name']}** — {fmt(top['fans'])} ({diff_str})",
+                    inline=False,
+                )
+
+            # Build member list as a code block (sorted by fans desc, already sorted)
+            lines = []
+            for i, m in enumerate(results, 1):
+                diff = m["fans"] - monthly_target
+                diff_str = f"+{fmt(diff)}" if diff >= 0 else f"-{fmt(abs(diff))}"
+                status = "✅" if m["fans"] >= monthly_target else "❌"
+                mid = "†" if m["joined_mid_month"] else " "
+                lines.append(f"{i:>2}. {status}{mid} {m['name']:<20} {fmt(m['fans']):>8}  ({diff_str})")
+
+            # Split into chunks that fit within Discord's 1024-char field limit
+            chunk, chunks = [], []
+            for line in lines:
+                if sum(len(l) + 1 for l in chunk) + len(line) > 980:
+                    chunks.append("\n".join(chunk))
+                    chunk = []
+                chunk.append(line)
+            if chunk:
+                chunks.append("\n".join(chunk))
+
+            for idx, chunk_text in enumerate(chunks):
+                field_name = "📋 Member Results" if idx == 0 else "\u200b"
+                embed.add_field(
+                    name=field_name,
+                    value=f"```\n{chunk_text}\n```",
+                    inline=False,
+                )
+
+            embed.set_footer(text="† joined mid-month  •  Data sourced from Uma.moe API")
+
+            await interaction.followup.send(embed=embed)
+            logger.info(
+                f"previous_month sent for {club} ({month_label}, "
+                f"{len(results)} members) by {interaction.user}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error in previous_month: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}")
+
+    previous_month.autocomplete("club")(club_autocomplete)
 
 
 async def setup(bot):

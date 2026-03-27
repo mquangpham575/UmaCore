@@ -251,3 +251,10 @@ scraped_data/
 
 # Local configuration overrides
 local_settings.py
+
+# Claude Code
+.claude/
+
+# Local dev/admin scripts
+preview_chart.py
+VPS_SETUP.md

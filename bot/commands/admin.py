@@ -272,6 +272,69 @@ class AdminCommands(commands.Cog):
             logger.error(f"Error in quota_history: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
+    @app_commands.command(name="delete_quota", description="Delete a specific quota requirement entry by date and amount")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def delete_quota(self, interaction: discord.Interaction, club: str, date: str, amount: int):
+        """Delete a specific quota requirement entry (use /quota_history to find the values)"""
+        await interaction.response.defer()
+
+        try:
+            club_obj = await Club.get_by_name(club)
+            if not club_obj:
+                await interaction.followup.send(f"❌ Club '{club}' not found")
+                return
+
+            if not club_obj.belongs_to_guild(interaction.guild_id):
+                await interaction.followup.send(f"❌ Club '{club}' is not registered in this server.")
+                return
+
+            try:
+                effective_date = datetime.strptime(date, "%Y-%m-%d").date()
+            except ValueError:
+                await interaction.followup.send("❌ Invalid date format. Use YYYY-MM-DD")
+                return
+
+            deleted = await QuotaRequirement.delete_by_date_and_amount(
+                club_obj.club_id, effective_date, amount
+            )
+
+            if deleted == 0:
+                await interaction.followup.send(
+                    f"❌ No quota requirement found for **{club}** on `{date}` with amount `{amount:,}`. "
+                    f"Use `/quota_history` to see existing entries."
+                )
+                return
+
+            if amount >= 1_000_000:
+                formatted = f"{amount / 1_000_000:.1f}M"
+            elif amount >= 1_000:
+                formatted = f"{amount / 1_000:.1f}K"
+            else:
+                formatted = str(amount)
+
+            embed = discord.Embed(
+                title=f"✅ Quota Entry Deleted - {club}",
+                description=f"Removed **{formatted} fans/day** effective `{date}`",
+                color=discord.Color.orange(),
+                timestamp=discord.utils.utcnow()
+            )
+            embed.add_field(
+                name="ℹ️ Next Steps",
+                value="The bot will now use the next applicable quota entry. "
+                      "Run `/quota_history` to verify, or `/force_check` to recalculate.",
+                inline=False
+            )
+            embed.set_footer(text=f"Deleted by {interaction.user}")
+
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Quota entry deleted for {club} ({amount:,} on {date}) by {interaction.user}")
+
+            await self._update_monthly_info_board(club_obj, effective_date)
+
+        except Exception as e:
+            logger.error(f"Error in delete_quota: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}")
+
     @app_commands.command(name="force_check", description="Manually trigger a quota check and report")
     @app_commands.checks.has_permissions(administrator=True)
     async def force_check(self, interaction: discord.Interaction, club: str):
@@ -787,6 +850,7 @@ class AdminCommands(commands.Cog):
     set_quota.autocomplete('club')(club_autocomplete)
     update_monthly_info.autocomplete('club')(club_autocomplete)
     quota_history.autocomplete('club')(club_autocomplete)
+    delete_quota.autocomplete('club')(club_autocomplete)
     force_check.autocomplete('club')(club_autocomplete)
     add_member.autocomplete('club')(club_autocomplete)
     deactivate_member.autocomplete('club')(club_autocomplete)
