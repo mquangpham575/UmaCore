@@ -151,6 +151,22 @@ class QuotaHistory:
         return result or 0
     
     @classmethod
+    async def get_current_month_for_club(cls, club_id: UUID, year: int, month: int):
+        """Get all quota history rows for a club in a given month, joined with trainer names.
+        Returns raw asyncpg records with (date, cumulative_fans, trainer_name)."""
+        query = """
+            SELECT qh.date, qh.cumulative_fans, m.trainer_name
+            FROM quota_history qh
+            JOIN members m ON m.member_id = qh.member_id
+            WHERE qh.club_id = $1
+              AND date_part('year', qh.date) = $2
+              AND date_part('month', qh.date) = $3
+              AND m.is_active = TRUE
+            ORDER BY qh.date ASC
+        """
+        return await db.fetch(query, club_id, year, month)
+
+    @classmethod
     async def clear_all(cls, club_id: UUID):
         """Clear all quota history for a club (for monthly reset)"""
         query = "DELETE FROM quota_history WHERE club_id = $1"
