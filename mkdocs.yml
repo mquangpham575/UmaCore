@@ -31,6 +31,8 @@ theme:
 
 nav:
   - Introduction: index.md
+  - Getting Started: getting-started.md
+  - FAQ: faq.md
   - Setup Guide: setup.md
   - Quota System: quota-system.md
   - Data Sources: data-sources.md
