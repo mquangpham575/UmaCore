@@ -5,14 +5,29 @@ site_url: https://oHaruki.github.io/UmaCore
 theme:
   name: material
   palette:
-    scheme: slate
-    primary: deep purple
-    accent: purple
+    - scheme: slate
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
   features:
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
+    - navigation.expand
     - navigation.top
+    - navigation.footer
+    - toc.follow
     - search.suggest
     - search.highlight
+    - content.code.copy
 
 nav:
   - Introduction: index.md
