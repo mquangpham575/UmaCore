@@ -1,0 +1,31 @@
+site_name: UmaCore
+site_description: Discord bot for tracking Umamusume club quotas
+site_url: https://oHaruki.github.io/UmaCore
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: deep purple
+    accent: purple
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+
+nav:
+  - Introduction: index.md
+  - Setup Guide: setup.md
+  - Quota System: quota-system.md
+  - Data Sources: data-sources.md
+  - Commands:
+      - Overview: commands/README.md
+      - Club Management: commands/club-management.md
+      - Quota Management: commands/quota-management.md
+      - Channel Settings: commands/channel-settings.md
+      - Member Management: commands/member-management.md
+      - User Commands: commands/user-commands.md
+      - Charts & Stats: commands/charts.md
+
+docs_dir: docs
