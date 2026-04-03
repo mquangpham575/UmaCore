@@ -86,7 +86,7 @@ class ReportGenerator:
             inline=False
         )
 
-        if rank_data:
+        if rank_data and rank_data.get('monthly_rank') is not None:
             rank_text = self._format_rank_section(rank_data)
             summary_embed.add_field(
                 name="🏆 Club Rankings",
