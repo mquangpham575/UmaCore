@@ -44,4 +44,5 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     python3 -m py_compile /usr/local/lib/python3.11/site-packages/zendriver/cdp/network.py && \
     grep "if \"privateNetworkRequestPolicy\" in json else None" /usr/local/lib/python3.11/site-packages/zendriver/cdp/network.py
 COPY . .
-CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1280x800x24", "python", "main.py"]
+# Run with virtual display (xvfb)
+CMD xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" python main.py
