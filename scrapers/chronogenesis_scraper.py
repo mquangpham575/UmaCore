@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import platform
+import shutil
 from typing import Dict, Optional
 from datetime import date
 
@@ -43,21 +44,33 @@ class ChronoGenesisScraper(BaseScraper):
             return {}
 
         system = platform.system()
-        
-        # Determine browser path (reusing your verified paths)
+
+        # Determine browser path dynamically
         if system == "Windows":
             executable = "C:/Program Files/Google/Chrome/Application/chrome.exe"
         else:
-            executable = "/usr/bin/google-chrome"
-            if not os.path.exists(executable):
-                executable = "/usr/bin/chromium-browser"
+            # Search PATH first, then check common hardcoded locations
+            executable = None
+            for name in ("google-chrome", "google-chrome-stable", "chromium-browser", "chromium"):
+                path = shutil.which(name)
+                if path:
+                    executable = path
+                    break
+            if not executable:
+                for path in ("/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium"):
+                    if os.path.isfile(path):
+                        executable = path
+                        break
+            if not executable:
+                logger.error("No Chrome/Chromium browser found on this system")
+                return {}
 
         logger.info(f"Starting zendriver UI-flow with executable: {executable}")
         
         # We use headless=False because xvfb is now enabled in Docker
         browser = await zd.start(
             browser="chrome" if system == "Linux" else "edge",
-            browser_executable_path=executable if os.path.exists(executable) else None,
+            browser_executable_path=executable,
             headless=False, # xvfb-run provides a virtual display
             sandbox=False,
             browser_args=[
@@ -87,30 +100,23 @@ class ChronoGenesisScraper(BaseScraper):
                     except Exception as e:
                         logger.debug(f"Captured data, but failed to parse API body: {e}")
 
-            # 1. Start with the base profile search page
-            logger.info("Navigating to base profile page...")
-            page = await browser.get("https://chronogenesis.net/club_profile")
+            # 1. Navigate directly to the club profile with circle_id (skips fragile search UI)
+            direct_url = f"https://chronogenesis.net/club_profile?circle_id={self.circle_id}"
+            logger.info(f"Navigating directly to: {direct_url}")
+            page = await browser.get(direct_url)
             await page.send(zd.cdp.network.enable())
             page.add_handler(zd.cdp.network.ResponseReceived, response_handler)
-            
-            # 2. Simulate Search UI Interaction
-            logger.info(f"Simulating UI search for ID: {self.circle_id}")
-            try:
-                # Wait for the search box
-                search_box = await page.select(".club-id-input", timeout=20)
-                await search_box.send_keys(self.circle_id)
-                await search_box.send_keys(zd.SpecialKeys.ENTER)
-                await asyncio.sleep(3) # Wait for search results
-                
-                # Click the result row to trigger full data load
-                results = await page.select_all(".club-results-row", timeout=10)
-                for res in results:
-                    if self.circle_id in res.text_all:
-                        logger.info("Clicking search result...")
-                        await res.click()
-                        break
-            except Exception as e:
-                logger.warning(f"UI interaction failed or timed out: {e}. Falling back to direct wait.")
+
+            # The page auto-loads data when circle_id is in the URL.
+            # If the API call already fired before our handler was attached,
+            # trigger a reload to ensure we capture it.
+            if not captured_json:
+                await asyncio.sleep(2)
+            if not captured_json:
+                logger.info("No API response captured yet, reloading to trigger data fetch...")
+                page = await browser.get(direct_url)
+                await page.send(zd.cdp.network.enable())
+                page.add_handler(zd.cdp.network.ResponseReceived, response_handler)
 
             # 3. Wait for data to be captured via network intercept
             logger.info("Waiting for data capture...")
