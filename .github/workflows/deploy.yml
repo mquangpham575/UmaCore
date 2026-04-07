@@ -20,7 +20,10 @@ jobs:
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/umacore_key
+          cat << 'EOF' > ~/.ssh/umacore_key
+          ${{ secrets.SSH_PRIVATE_KEY }}
+          EOF
+          sed -i 's/\r$//' ~/.ssh/umacore_key
           chmod 600 ~/.ssh/umacore_key
           ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
