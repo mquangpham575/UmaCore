@@ -86,7 +86,7 @@ class ChronoGenesisScraper(BaseScraper):
             
             # Wait for data to load
             logger.info("Waiting for API response capture...")
-            for _ in range(20): # 20 second timeout
+            for _ in range(120): # Increased to 120 second timeout
                 if captured_json:
                     break
                 await asyncio.sleep(1)
