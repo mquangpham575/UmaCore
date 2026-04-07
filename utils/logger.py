@@ -50,7 +50,6 @@ def setup_logging():
     # Suppress noisy loggers
     logging.getLogger('discord').setLevel(logging.WARNING)
     logging.getLogger('discord.http').setLevel(logging.WARNING)
-    logging.getLogger('selenium').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     
     logger.info("Logging configured successfully")
