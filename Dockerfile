@@ -36,6 +36,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    # Hotfix for Chrome 146+ KeyError: 'privateNetworkRequestPolicy' inside zendriver
+    sed -i "s/json\[\"privateNetworkRequestPolicy\"\]/json.get(\"privateNetworkRequestPolicy\")/g" \
+    /usr/local/lib/python3.11/site-packages/zendriver/cdp/network.py
 COPY . .
 CMD ["python", "main.py"]

@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 import platform
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from datetime import date
 
 import zendriver as zd
@@ -40,7 +40,6 @@ class ChronoGenesisScraper(BaseScraper):
             return {}
 
         system = platform.system()
-        machine = platform.machine().lower()
         
         # Determine browser path based on platform (same logic as uma_tracking)
         if system == "Windows":
@@ -121,7 +120,8 @@ class ChronoGenesisScraper(BaseScraper):
             fans = entry.get("fan_count", 0) # API usually provides cumulative or daily?
             # ChronoGenesis API 'fan_count' in history is cumulative for that day.
             
-            if not trainer_id: continue
+            if not trainer_id:
+                continue
             
             if trainer_id not in member_data:
                 member_data[trainer_id] = {
@@ -133,7 +133,8 @@ class ChronoGenesisScraper(BaseScraper):
             member_data[trainer_id]["daily_map"][day] = fans
             all_days.add(day)
 
-        if not all_days: return {}
+        if not all_days:
+            return {}
         
         day_numbers = sorted(list(all_days))
         self.club_start_day = day_numbers[0]
