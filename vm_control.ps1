@@ -4,7 +4,7 @@
 
 param (
     [Parameter(Mandatory=$true)]
-    [ValidateSet("start", "stop", "status")]
+    [ValidateSet("start", "stop", "status", "logs", "db")]
     [string]$Action
 )
 
@@ -23,5 +23,13 @@ switch ($Action) {
     "status" {
         Write-Host "🔍 Checking Status for $VM..." -ForegroundColor Gray
         az vm get-instance-view --resource-group $RG --name $VM --query "instanceView.statuses[1].displayStatus" -o tsv
+    }
+    "logs" {
+        Write-Host "📜 Fetching logs for umacore-bot..." -ForegroundColor Cyan
+        ssh -i .ssh\umacore_key umacore@20.212.105.13 "docker logs -f umacore-bot"
+    }
+    "db" {
+        Write-Host "🗄️ Connecting to PostgreSQL shell..." -ForegroundColor Blue
+        ssh -i .ssh\umacore_key umacore@20.212.105.13 -t "docker exec -it umacore-postgres psql -U umacore"
     }
 }

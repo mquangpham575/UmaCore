@@ -1,490 +1,176 @@
 """
-ChronoGenesis website scraper using Selenium
+ChronoGenesis website scraper using zendriver (Network Interception)
 """
+import asyncio
+import json
+import logging
+import platform
 from typing import Dict, List, Optional
 from datetime import date
-import logging
-import asyncio
 
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.select import Select
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from webdriver_manager.chrome import ChromeDriverManager
-
+import zendriver as zd
 from scrapers.base_scraper import BaseScraper
-from config.settings import SCRAPE_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
-
 class ChronoGenesisScraper(BaseScraper):
-    """Scraper for ChronoGenesis.net club profile pages"""
+    """Scraper for ChronoGenesis.net using network interception"""
     
     def __init__(self, url: str):
         super().__init__(url)
+        self.circle_id = self._extract_circle_id(url)
         self.current_day_count = 1
         self.club_start_day = 1
-        self._data_date = None  # ChronoGenesis always scrapes current month
-    
-    def _get_chrome_version(self) -> str:
-        """Detect the installed Chrome/Chromium version across platforms"""
-        import subprocess
+        self._data_date = None
+        
+    def _extract_circle_id(self, url: str) -> str:
+        """Extract circle_id from URL"""
         import re
-        import platform
-        
-        system = platform.system()
-        commands = []
-        
-        if system == "Windows":
-            commands = [
-                r'reg query "HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon" /v version',
-                r'reg query "HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome" /v version',
-            ]
-        elif system == "Darwin":
-            commands = [
-                ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '--version'],
-                ['chromium', '--version'],
-            ]
-        else:
-            commands = [
-                ['chromium-browser', '--version'],
-                ['chromium', '--version'],
-                ['google-chrome', '--version'],
-            ]
-        
-        for cmd in commands:
-            try:
-                if isinstance(cmd, str):
-                    result = subprocess.run(cmd, capture_output=True, text=True, 
-                                          timeout=5, shell=True)
-                else:
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-                
-                version_output = result.stdout
-                match = re.search(r'(\d+\.\d+\.\d+\.\d+)', version_output)
-                if match:
-                    version = match.group(1)
-                    logger.info(f"Detected Chrome version: {version}")
-                    return version
-            except Exception as e:
-                logger.debug(f"Command failed: {cmd}, error: {e}")
-                continue
-        
-        logger.warning("Could not detect Chrome version, using fallback 131.0.0.0")
-        return "131.0.0.0"
-    
-    def _setup_driver(self) -> webdriver.Chrome:
-        """Set up Selenium Chrome driver with headless options"""
-        import platform
-        
-        chrome_options = Options()
-        chrome_options.add_argument("--headless=new")
-        
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        
+        match = re.search(r'circle_id=(\d+)', url)
+        if match:
+            return match.group(1)
+        return ""
+
+    async def scrape(self) -> Dict[str, Dict]:
+        """
+        Scrape ChronoGenesis by intercepting API responses.
+        """
+        if not self.circle_id:
+            logger.error(f"Could not extract circle_id from {self.url}")
+            return {}
+
         system = platform.system()
         machine = platform.machine().lower()
         
-        if system == "Linux":
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            
-            if 'arm' in machine or 'aarch64' in machine:
-                chrome_options.add_argument("--no-zygote")
-                chrome_options.add_argument("--single-process")
-        
-        chrome_options.add_argument("--disable-software-rasterizer")
-        chrome_options.add_argument("--window-size=1920,1080")
-        
-        chrome_version = self._get_chrome_version()
-        logger.info(f"Detected Chrome version: {chrome_version}")
-        logger.info(f"Detected OS: {system}, CPU architecture: {machine}")
-        
+        # Determine browser path based on platform (same logic as uma_tracking)
         if system == "Windows":
-            user_agent = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Safari/537.36"
-        elif system == "Darwin":
-            user_agent = f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Safari/537.36"
-        elif 'arm' in machine or 'aarch64' in machine:
-            user_agent = f"Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Safari/537.36"
+            executable = "C:/Program Files/Google/Chrome/Application/chrome.exe"
+            # Fallback for Brave if needed, but Chrome is safer for Actions
         else:
-            user_agent = f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version} Safari/537.36"
+            executable = "/usr/bin/google-chrome"
+            if not os.path.exists(executable):
+                executable = "/usr/bin/chromium-browser"
+
+        logger.info(f"Starting zendriver with executable: {executable}")
         
-        chrome_options.add_argument(f"--user-agent={user_agent}")
-        logger.info(f"Using user agent: {user_agent}")
+        browser = await zd.start(
+            browser="chrome" if system == "Linux" else "edge", # zendriver uses 'edge' for chromium-based on Windows sometimes
+            browser_executable_path=executable if os.path.exists(executable) else None,
+            headless=True,
+            sandbox=False,
+            browser_args=[
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+            ],
+        )
+
+        captured_json = None
         
-        if system == "Linux":
-            import os
-            chromedriver_path = '/usr/bin/chromedriver'
-            
-            if os.path.exists(chromedriver_path):
-                logger.info(f"Using system ChromeDriver at {chromedriver_path}")
-                service = Service(chromedriver_path)
-            else:
-                logger.error(f"ChromeDriver not found at {chromedriver_path}")
-                logger.error("Install it with: apt-get install chromium-driver")
-                raise FileNotFoundError(
-                    f"ChromeDriver not found. Please install chromium-driver:\n"
-                    f"  apt-get update\n"
-                    f"  apt-get install chromium chromium-driver"
-                )
-        else:
-            logger.info(f"Using webdriver-manager for {system}")
-            try:
-                service = Service(ChromeDriverManager().install())
-            except Exception as e:
-                logger.error(f"Failed to install ChromeDriver via webdriver-manager: {e}")
-                logger.error("Please ensure Chrome/Chromium is installed and up to date")
-                raise
-        
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-        
-        driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-            'source': '''
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                })
-            '''
-        })
-        
-        return driver
-    
-    def _scrape_sync(self) -> Dict[str, Dict]:
-        """Synchronous scraping function (runs in executor)"""
-        driver = None
         try:
-            driver = self._setup_driver()
-            logger.info(f"Loading {self.url}...")
-            driver.get(self.url)
+            target_url_fragment = f"api.chronogenesis.net/club_profile?circle_id={self.circle_id}"
             
-            import time
-            
-            time.sleep(2)
-            current_url = driver.current_url
-            logger.info(f"Page loaded, current URL: {current_url}")
-            
-            if "chronogenesis.net" not in current_url:
-                logger.error(f"Unexpected URL: {current_url}")
-                driver.save_screenshot("debug_wrong_url.png")
-                raise ValueError(f"Page redirected to unexpected URL: {current_url}")
-            
-            logger.info("Checking for cookie consent popup...")
-            try:
-                time.sleep(3)
-                
-                selectors = [
-                    "//button[contains(text(), 'Continue with Recommended Cookies')]",
-                    "button.ez-accept-all",
-                    "#ez-cookie-dialog-wrapper button",
-                    ".ez-main-cmp-wrapper button",
-                    "button.fc-cta-consent",
-                    "button[class*='consent']",
-                    "button[title='Consent']",
-                    "//button[contains(text(), 'Consent')]",
-                    "//button[contains(text(), 'Accept')]",
-                ]
-                
-                consent_clicked = False
-                for selector in selectors:
+            async def response_handler(event: zd.cdp.network.ResponseReceived):
+                nonlocal captured_json
+                if target_url_fragment in event.response.url:
                     try:
-                        if selector.startswith("//"):
-                            consent_button = driver.find_element(By.XPATH, selector)
-                        else:
-                            consent_button = driver.find_element(By.CSS_SELECTOR, selector)
-                        
-                        if consent_button.is_displayed():
-                            consent_button.click()
-                            logger.info(f"Clicked consent button: {selector}")
-                            consent_clicked = True
-                            time.sleep(15)
-                            break
+                        # Fetch the body for this request
+                        body, _ = await page.send(zd.cdp.network.get_response_body(request_id=event.request_id))
+                        captured_json = json.loads(body)
+                        logger.info(f"Captured API response for {event.response.url}")
                     except Exception as e:
-                        logger.debug(f"Selector {selector} failed: {e}")
-                        continue
+                        logger.debug(f"Failed to parse API body: {e}")
+
+            page = await browser.get(self.url)
+            await page.send(zd.cdp.network.enable())
+            page.add_handler(zd.cdp.network.ResponseReceived, response_handler)
+            
+            # Wait for data to load
+            logger.info("Waiting for API response capture...")
+            for _ in range(20): # 20 second timeout
+                if captured_json:
+                    break
+                await asyncio.sleep(1)
                 
-                if not consent_clicked:
-                    logger.warning("Could not find or click cookie consent button")
-                    logger.warning("Attempting to remove cookie dialog with JavaScript...")
-                    
-                    try:
-                        driver.execute_script("""
-                            var ezDialog = document.getElementById('ez-cookie-dialog-wrapper');
-                            if (ezDialog) ezDialog.remove();
-                            
-                            var overlays = document.querySelectorAll('[id*="cookie"], [class*="cookie"], [id*="consent"], [class*="consent"]');
-                            overlays.forEach(function(el) {
-                                if (el.style.position === 'fixed' || el.style.zIndex > 100) {
-                                    el.remove();
-                                }
-                            });
-                        """)
-                        logger.info("Removed cookie dialog with JavaScript")
-                        time.sleep(2)
-                    except Exception as js_error:
-                        logger.error(f"JavaScript removal failed: {js_error}")
-                    
-            except Exception as e:
-                logger.info("No consent popup found or already accepted")
-            
-            logger.info("Waiting for page to fully render...")
-            time.sleep(5)
-            
-            logger.info("Waiting for chart container to load...")
-            wait = WebDriverWait(driver, SCRAPE_TIMEOUT)
-            
-            try:
-                chart_container = wait.until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, ".club_daily_chart_container"))
-                )
-                logger.info("Found chart container")
-            except TimeoutException:
-                logger.error("Chart container not found after timeout")
-                logger.error("Page source (first 2000 chars):")
-                logger.error(driver.page_source[:2000])
-                driver.save_screenshot("debug_no_chart.png")
-                raise ValueError("Chart container not found on page")
-            
-            logger.info("Switching to 'Member Cumulative Fan Count' chart...")
-            try:
-                chart_select = driver.find_element(By.ID, "chart")
-                select = Select(chart_select)
-                select.select_by_value("member_fan_cumulative")
-                logger.info("Selected 'Member Cumulative Fan Count' chart")
-                time.sleep(8)
-            except Exception as e:
-                logger.warning(f"Could not switch chart mode: {e}")
-            
-            logger.info("Looking for 'Show data' button...")
-            try:
-                expand_button = driver.find_element(By.CSS_SELECTOR, ".expand-button")
-                expand_button.click()
-                logger.info("Clicked 'Show data' button")
-                time.sleep(2)
-            except Exception as e:
-                logger.info(f"Could not find/click expand button: {e}")
-            
-            logger.info("Looking for chart data table...")
-            chart_table = None
-            try:
-                chart_table = chart_container.find_element(By.TAG_NAME, "table")
-                logger.info("Found chart data table")
-            except NoSuchElementException:
-                logger.warning("No table found in chart container, trying different approach...")
-                
-                all_tables = driver.find_elements(By.TAG_NAME, "table")
-                logger.info(f"Found {len(all_tables)} total tables on page")
-                
-                for idx, table in enumerate(all_tables):
-                    table_class = table.get_attribute("class") or ""
-                    if "club-member-table" not in table_class:
-                        chart_table = table
-                        logger.info(f"Using table {idx} (class: {table_class}) as chart table")
-                        break
-            
-            if not chart_table:
-                logger.error("Could not find chart data table")
-                driver.save_screenshot("debug_no_chart_table.png")
-                raise ValueError("Chart data table not found")
-            
-            logger.info("Parsing chart table for daily data...")
-            member_data = self._parse_chart_table(chart_table)
-            
-            if not member_data:
-                logger.error("No data extracted from chart table")
-                table_html = chart_table.get_attribute('outerHTML')[:2000]
-                logger.error(f"Chart table HTML: {table_html}")
-                driver.save_screenshot("debug_empty_chart_data.png")
-                raise ValueError("No daily data found in chart table")
-            
-            logger.info(f"Successfully scraped {len(member_data)} members with daily data")
-            return member_data
-            
-        except TimeoutException:
-            logger.error(f"Timeout while loading {self.url}")
-            raise
-        except Exception as e:
-            logger.error(f"Error during scraping: {e}")
-            raise
+            if not captured_json:
+                logger.error("Timed out waiting for ChronoGenesis API response")
+                return {}
+
+            return self._parse_api_json(captured_json)
+
         finally:
-            if driver:
-                driver.quit()
-    
-    def _parse_chart_table(self, table) -> Dict[str, Dict]:
-        """Parse the chart data table to extract daily fan counts per member
-        
-        Table structure:
-        Header: ["Player", "Day 11", "Day 12", "Day 13", ...]
-        Row 1:  [Member1Name, fans_day11, fans_day12, fans_day13, ...]
-        Row 2:  [Member2Name, fans_day11, fans_day12, fans_day13, ...]
-        
-        Returns:
-            Dict with structure:
-            {
-                "trainer_id": {
-                    "name": "TrainerName",
-                    "fans": [day11_fans, day12_fans, ...],
-                    "join_day": 11  # actual calendar day
-                }
-            }
+            await browser.stop()
+
+    def _parse_api_json(self, data: dict) -> Dict[str, Dict]:
         """
-        member_data = {}
-        
-        try:
-            rows = table.find_elements(By.TAG_NAME, "tr")
-            logger.info(f"Chart table has {len(rows)} rows")
-            
-            if len(rows) < 2:
-                logger.warning("Chart table has too few rows")
-                return {}
-            
-            header_row = rows[0]
-            headers = header_row.find_elements(By.TAG_NAME, "th")
-            
-            if not headers:
-                headers = header_row.find_elements(By.TAG_NAME, "td")
-                logger.info("Using td elements as headers")
-            
-            # Extract day columns with actual day numbers using regex
-            import re
-            day_columns = []
-            for idx, header in enumerate(headers):
-                header_text = header.text.strip()
-                match = re.match(r'Day\s+(\d+)', header_text)
-                if match:
-                    day_number = int(match.group(1))
-                    day_columns.append((idx, day_number))
-            
-            if not day_columns:
-                logger.error("No 'Day X' columns found in header")
-                header_texts = [h.text.strip() for h in headers]
-                logger.error(f"Headers found: {header_texts}")
-                
-                if all(not h for h in header_texts):
-                    logger.error("All headers are empty! Cookie consent popup is likely blocking the page.")
-                    raise ValueError("Cookie popup is blocking page access - headers are empty")
-                
-                return {}
-            
-            # Extract day numbers and column indices separately
-            day_numbers = [day_num for _, day_num in day_columns]
-            col_indices = [col_idx for col_idx, _ in day_columns]
-            
-            # Store club start day (first day in the table)
-            self.club_start_day = day_numbers[0]
-            
-            # Set current day to the last day number (actual calendar day)
-            self.current_day_count = day_numbers[-1]
-            
-            logger.info(f"Found {len(day_columns)} day columns: Days {day_numbers[0]}-{day_numbers[-1]}")
-            
-            # Parse data rows (each row is a member)
-            for row_idx, row in enumerate(rows[1:], start=1):
-                cells = row.find_elements(By.TAG_NAME, "td")
-                
-                if not cells or len(cells) < 2:
-                    continue
-                
-                first_cell = cells[0]
-                
-                try:
-                    span = first_cell.find_element(By.TAG_NAME, "span")
-                    trainer_id = span.get_attribute("title")
-                    member_name = span.text.strip()
-                except:
-                    member_name = first_cell.text.strip()
-                    trainer_id = None
-                    logger.warning(f"Could not extract trainer ID for {member_name}")
-                
-                if not member_name or member_name == "-" or member_name == "Player":
-                    continue
-                
-                # Extract fan counts for each day
-                daily_fans = []
-                for col_idx in col_indices:
-                    if col_idx >= len(cells):
-                        break
-                    
-                    cell_text = cells[col_idx].text.strip()
-                    
-                    if not cell_text or cell_text == "-":
-                        daily_fans.append(0)
-                        continue
-                    
-                    try:
-                        fan_count = int(cell_text.replace(',', ''))
-                        daily_fans.append(fan_count)
-                    except ValueError:
-                        logger.debug(f"Non-numeric cell for {member_name}: '{cell_text}', using 0")
-                        daily_fans.append(0)
-                
-                # Detect join day using actual calendar day numbers
-                join_day = day_numbers[0]  # Default to first day in table
-                for fans, day_num in zip(daily_fans, day_numbers):
-                    if fans > 0:
-                        join_day = day_num
-                        break
-                
-                # Use trainer_id as key if available, otherwise use name
-                key = trainer_id if trainer_id else member_name
-                
-                member_data[key] = {
-                    "name": member_name,
-                    "trainer_id": trainer_id,
-                    "fans": daily_fans,
-                    "join_day": join_day  # Actual calendar day
-                }
-                
-                logger.debug(f"Parsed {member_name} (ID: {trainer_id}): {len(daily_fans)} days, joined day {join_day}")
-            
-            logger.info(f"Successfully parsed {len(member_data)} members with days {day_numbers[0]}-{day_numbers[-1]}")
-            
-            return member_data
-            
-        except Exception as e:
-            logger.error(f"Error parsing chart table: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+        Parse the JSON from api.chronogenesis.net/club_profile
+        """
+        history = data.get("club_friend_history", [])
+        if not history:
+            logger.warning("Empty club_friend_history in API response")
             return {}
-    
-    async def scrape(self) -> Dict[str, Dict]:
-        """
-        Scrape the website asynchronously
-        
-        Returns:
-            Dict mapping trainer_id -> member data dict:
-            {
-                "trainer_id": {
-                    "name": "TrainerName",
-                    "trainer_id": "trainer_id",
-                    "fans": [day1_fans, day2_fans, ...],
-                    "join_day": 1
+
+        member_data = {}
+        all_days = set()
+
+        # Group data by member
+        for entry in history:
+            trainer_id = str(entry.get("friend_viewer_id", ""))
+            name = entry.get("friend_name", "Unknown")
+            day = entry.get("actual_date")
+            fans = entry.get("fan_count", 0) # API usually provides cumulative or daily?
+            # ChronoGenesis API 'fan_count' in history is cumulative for that day.
+            
+            if not trainer_id: continue
+            
+            if trainer_id not in member_data:
+                member_data[trainer_id] = {
+                    "name": name,
+                    "trainer_id": trainer_id,
+                    "daily_map": {}
                 }
+            
+            member_data[trainer_id]["daily_map"][day] = fans
+            all_days.add(day)
+
+        if not all_days: return {}
+        
+        day_numbers = sorted(list(all_days))
+        self.club_start_day = day_numbers[0]
+        self.current_day_count = day_numbers[-1]
+        
+        logger.info(f"Parsed {len(member_data)} members. Data covers days {self.club_start_day} to {self.current_day_count}.")
+
+        final_data = {}
+        for tid, info in member_data.items():
+            # Create the list of daily cumulative fans
+            fans_list = []
+            join_day = self.club_start_day
+            found_first = False
+            
+            for d in day_numbers:
+                f = info["daily_map"].get(d, 0)
+                fans_list.append(f)
+                if not found_first and f > 0:
+                    found_first = True
+                    join_day = d
+            
+            final_data[tid] = {
+                "name": info["name"],
+                "trainer_id": tid,
+                "fans": fans_list,
+                "join_day": join_day
             }
-        """
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, self._scrape_sync)
-        return result
-    
+
+        return final_data
+
     def get_current_day(self) -> int:
-        """Get the current day number (actual calendar day)"""
         return self.current_day_count
     
     def get_club_start_day(self) -> int:
-        """Get the club start day (first day in the table)"""
         return self.club_start_day
     
     def get_data_date(self) -> Optional[date]:
-        """
-        Get the actual date the scraped data belongs to.
-        
-        For ChronoGenesis, this is always None since it scrapes current month data.
-        Returns None to indicate data matches current calendar date.
-        """
         return self._data_date
+
+import os

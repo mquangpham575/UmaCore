@@ -5,8 +5,7 @@ discord.py>=2.3.0
 asyncpg>=0.29.0
 
 # Web Scraping
-selenium>=4.15.0
-webdriver-manager>=4.0.0
+zendriver>=0.15.2
 
 # API Requests
 aiohttp>=3.9.0
