@@ -1,29 +1,56 @@
-name: Deploy UmaCore Bot to Raspberry Pi
+name: Deploy UmaCore Bot to Azure VM
 
 on:
   workflow_dispatch:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'terraform/**'
 
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Create .env file
+      - name: Setup SSH key
         run: |
-          echo "DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }}" >> .env
-          echo "CHANNEL_ID=${{ secrets.CHANNEL_ID }}" >> .env
-          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
-          echo "LOG_LEVEL=${{ secrets.LOG_LEVEL }}" >> .env
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/umacore_key
+          chmod 600 ~/.ssh/umacore_key
+          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Stop existing containers
-        run: docker-compose down || true
+      - name: Deploy to Azure VM
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          SSH_KEY: ~/.ssh/umacore_key
+        run: |
+          SSH_CMD="ssh -i $SSH_KEY -o StrictHostKeyChecking=no $VM_USER@$VM_HOST"
 
-      - name: Pull latest changes
-        run: git pull origin main
+          # Sync project files (exclude .git, terraform, docs)
+          rsync -avz --delete \
+            -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no" \
+            --exclude '.git' \
+            --exclude 'terraform' \
+            --exclude 'docs' \
+            --exclude '.env' \
+            --exclude 'logs' \
+            --exclude '__pycache__' \
+            ./ $VM_USER@$VM_HOST:/opt/umacore/
 
-      - name: Build and deploy Docker containers
-        run: docker-compose up -d --build
+          # Create .env on the VM
+          $SSH_CMD "cat > /opt/umacore/.env << 'ENVEOF'
+          DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }}
+          CHANNEL_ID=${{ secrets.CHANNEL_ID }}
+          DATABASE_URL=postgresql://umacore:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/umacore
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          LOG_LEVEL=${{ secrets.LOG_LEVEL }}
+          ENVEOF"
+
+          # Build and deploy
+          $SSH_CMD "cd /opt/umacore && docker compose -f docker-compose.prod.yml up -d --build"

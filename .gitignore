@@ -7,6 +7,15 @@
 *.env
 config.ini
 secrets.json
+.ssh/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.tfplan
+.terraform.lock.hcl
 
 # ============================================
 # Python

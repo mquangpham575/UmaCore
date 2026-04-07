@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: umacore-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: umacore
+      POSTGRES_USER: umacore
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umacore"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  umacore-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: umacore-bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - DISPLAY=:99
+      - DATABASE_URL=postgresql://umacore:${POSTGRES_PASSWORD}@postgres:5432/umacore
+    volumes:
+      - ./logs:/app/logs
+    shm_size: 2gb
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pgdata:
