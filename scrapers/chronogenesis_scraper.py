@@ -1,6 +1,8 @@
 """
-ChronoGenesis website scraper using zendriver (Network Interception)
+ChronoGenesis website scraper using zendriver (Network Interception & UI Search)
+This implementation adopts the successful strategy from the 'uma_tracking' project.
 """
+import os
 import asyncio
 import json
 import logging
@@ -14,7 +16,7 @@ from scrapers.base_scraper import BaseScraper
 logger = logging.getLogger(__name__)
 
 class ChronoGenesisScraper(BaseScraper):
-    """Scraper for ChronoGenesis.net using network interception"""
+    """Scraper for ChronoGenesis.net using network interception and UI simulation"""
     
     def __init__(self, url: str):
         super().__init__(url)
@@ -33,7 +35,8 @@ class ChronoGenesisScraper(BaseScraper):
 
     async def scrape(self) -> Dict[str, Dict]:
         """
-        Scrape ChronoGenesis by intercepting API responses.
+        Scrape ChronoGenesis by simulating UI search and intercepting API responses.
+        Adopts the proven strategy from 'uma_tracking'.
         """
         if not self.circle_id:
             logger.error(f"Could not extract circle_id from {self.url}")
@@ -41,27 +44,29 @@ class ChronoGenesisScraper(BaseScraper):
 
         system = platform.system()
         
-        # Determine browser path based on platform (same logic as uma_tracking)
+        # Determine browser path (reusing your verified paths)
         if system == "Windows":
             executable = "C:/Program Files/Google/Chrome/Application/chrome.exe"
-            # Fallback for Brave if needed, but Chrome is safer for Actions
         else:
             executable = "/usr/bin/google-chrome"
             if not os.path.exists(executable):
                 executable = "/usr/bin/chromium-browser"
 
-        logger.info(f"Starting zendriver with executable: {executable}")
+        logger.info(f"Starting zendriver UI-flow with executable: {executable}")
         
+        # We use headless=False because xvfb is now enabled in Docker
         browser = await zd.start(
-            browser="chrome" if system == "Linux" else "edge", # zendriver uses 'edge' for chromium-based on Windows sometimes
+            browser="chrome" if system == "Linux" else "edge",
             browser_executable_path=executable if os.path.exists(executable) else None,
-            headless=True,
+            headless=False, # xvfb-run provides a virtual display
             sandbox=False,
             browser_args=[
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
                 "--no-sandbox",
             ],
+            browser_connection_timeout=1.0,
+            browser_connection_max_tries=30,
         )
 
         captured_json = None
@@ -75,24 +80,47 @@ class ChronoGenesisScraper(BaseScraper):
                     try:
                         # Fetch the body for this request
                         body, _ = await page.send(zd.cdp.network.get_response_body(request_id=event.request_id))
-                        captured_json = json.loads(body)
-                        logger.info(f"Captured API response for {event.response.url}")
+                        # Basic validation that it's the correct data
+                        if "club_friend_history" in body:
+                            captured_json = json.loads(body)
+                            logger.info(f"Captured API response for {event.response.url}")
                     except Exception as e:
-                        logger.debug(f"Failed to parse API body: {e}")
+                        logger.debug(f"Captured data, but failed to parse API body: {e}")
 
-            page = await browser.get(self.url)
+            # 1. Start with the base profile search page
+            logger.info("Navigating to base profile page...")
+            page = await browser.get("https://chronogenesis.net/club_profile")
             await page.send(zd.cdp.network.enable())
             page.add_handler(zd.cdp.network.ResponseReceived, response_handler)
             
-            # Wait for data to load
-            logger.info("Waiting for API response capture...")
-            for _ in range(120): # Increased to 120 second timeout
+            # 2. Simulate Search UI Interaction
+            logger.info(f"Simulating UI search for ID: {self.circle_id}")
+            try:
+                # Wait for the search box
+                search_box = await page.select(".club-id-input", timeout=20)
+                await search_box.send_keys(self.circle_id)
+                await search_box.send_keys(zd.SpecialKeys.ENTER)
+                await asyncio.sleep(3) # Wait for search results
+                
+                # Click the result row to trigger full data load
+                results = await page.select_all(".club-results-row", timeout=10)
+                for res in results:
+                    if self.circle_id in res.text_all:
+                        logger.info("Clicking search result...")
+                        await res.click()
+                        break
+            except Exception as e:
+                logger.warning(f"UI interaction failed or timed out: {e}. Falling back to direct wait.")
+
+            # 3. Wait for data to be captured via network intercept
+            logger.info("Waiting for data capture...")
+            for _ in range(30): # 30 second timeout for the capture
                 if captured_json:
                     break
                 await asyncio.sleep(1)
                 
             if not captured_json:
-                logger.error("Timed out waiting for ChronoGenesis API response")
+                logger.error("Timed out waiting for ChronoGenesis API response via UI flow")
                 return {}
 
             return self._parse_api_json(captured_json)
@@ -101,9 +129,7 @@ class ChronoGenesisScraper(BaseScraper):
             await browser.stop()
 
     def _parse_api_json(self, data: dict) -> Dict[str, Dict]:
-        """
-        Parse the JSON from api.chronogenesis.net/club_profile
-        """
+        """Parse core daily data from captured JSON"""
         history = data.get("club_friend_history", [])
         if not history:
             logger.warning("Empty club_friend_history in API response")
@@ -117,8 +143,7 @@ class ChronoGenesisScraper(BaseScraper):
             trainer_id = str(entry.get("friend_viewer_id", ""))
             name = entry.get("friend_name", "Unknown")
             day = entry.get("actual_date")
-            fans = entry.get("fan_count", 0) # API usually provides cumulative or daily?
-            # ChronoGenesis API 'fan_count' in history is cumulative for that day.
+            fans = entry.get("fan_count", 0) 
             
             if not trainer_id:
                 continue
@@ -144,7 +169,6 @@ class ChronoGenesisScraper(BaseScraper):
 
         final_data = {}
         for tid, info in member_data.items():
-            # Create the list of daily cumulative fans
             fans_list = []
             join_day = self.club_start_day
             found_first = False
@@ -173,5 +197,3 @@ class ChronoGenesisScraper(BaseScraper):
     
     def get_data_date(self) -> Optional[date]:
         return self._data_date
-
-import os
