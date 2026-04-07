@@ -37,11 +37,11 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
-    # Robust Hotfix for Chrome 146+ KeyError: 'privateNetworkRequestPolicy' inside zendriver
-    # We use re.sub with a negative lookahead to only patch reads, not assignments
-    python3 -c "import re; p='/usr/local/lib/python3.11/site-packages/zendriver/cdp/network.py'; c=open(p).read(); open(p,'w').write(re.sub(r'json\[\"privateNetworkRequestPolicy\"\](?!\s*=)', 'json.get(\"privateNetworkRequestPolicy\")', c))" && \
+    # Robust Hotfix for Chrome 146+ KeyError/ValueError: 'privateNetworkRequestPolicy' inside zendriver
+    # We wrap the from_json call in a conditional to skip it if the key is missing from the CDP event
+    python3 -c "import re; p='/usr/local/lib/python3.11/site-packages/zendriver/cdp/network.py'; c=open(p).read(); open(p,'w').write(re.sub(r'PrivateNetworkRequestPolicy\.from_json\(\s*json\[\"privateNetworkRequestPolicy\"\]\s*\)', '(PrivateNetworkRequestPolicy.from_json(json[\"privateNetworkRequestPolicy\"]) if \"privateNetworkRequestPolicy\" in json else None)', c))" && \
     # Verify the patch and ensure no syntax errors were introduced
     python3 -m py_compile /usr/local/lib/python3.11/site-packages/zendriver/cdp/network.py && \
-    grep "json.get(\"privateNetworkRequestPolicy\")" /usr/local/lib/python3.11/site-packages/zendriver/cdp/network.py
+    grep "if \"privateNetworkRequestPolicy\" in json else None" /usr/local/lib/python3.11/site-packages/zendriver/cdp/network.py
 COPY . .
 CMD ["python", "main.py"]
