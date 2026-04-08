@@ -1,20 +1,14 @@
-FROM python:3.11-slim-bookworm
+FROM --platform=linux/amd64 python:3.11-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive
-# Install Google Chrome .deb with deps pre-installed.
+# Install Google Chrome .deb directly.
 # Debian chromium gets blocked by Cloudflare Turnstile on ChronoGenesis.
-# slim-bookworm can't resolve Chrome deps in one shot, so we install them first.
+# Platform pinned to amd64 above since Chrome has no arm64 Linux build.
 RUN apt-get update && apt-get install -y \
     wget gnupg curl unzip xvfb xdg-utils \
-    fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 \
-    libatspi2.0-0 libcairo2 libcups2 libcurl4 libdbus-1-3 \
-    libexpat1 libgbm1 libglib2.0-0 libgtk-3-0 libnspr4 libnss3 \
-    libpango-1.0-0 libudev1 libvulkan1 libx11-6 libxcb1 \
-    libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 \
-    libxrandr2 \
     && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && dpkg -i ./google-chrome-stable_current_amd64.deb \
+    && apt-get install -y ./google-chrome-stable_current_amd64.deb \
     && rm google-chrome-stable_current_amd64.deb \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
