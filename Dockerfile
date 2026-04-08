@@ -2,9 +2,9 @@ FROM python:3.11-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive
-# Install Google Chrome (same build as GitHub Actions ubuntu-latest).
+# Install Google Chrome from Google's apt repo.
 # Debian chromium gets blocked by Cloudflare Turnstile on ChronoGenesis.
-# We download the .deb directly so apt resolves renamed deps (libasound2t64 etc).
+# Using the repo (not the .deb) ensures deps resolve on slim images.
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -12,10 +12,13 @@ RUN apt-get update && apt-get install -y \
     unzip \
     xvfb \
     xdg-utils \
-    && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && dpkg -i ./google-chrome-stable_current_amd64.deb || true \
-    && apt-get install -f -y \
-    && rm google-chrome-stable_current_amd64.deb \
+    && wget -q -O /tmp/chrome-key.gpg https://dl.google.com/linux/linux_signing_key.pub \
+    && gpg --dearmor < /tmp/chrome-key.gpg > /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+       > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    && rm /tmp/chrome-key.gpg \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
