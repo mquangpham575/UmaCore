@@ -82,57 +82,67 @@ class ChronoGenesisScraper(BaseScraper):
             browser_connection_max_tries=30,
         )
 
-        captured_json = None
-        
-        try:
-            target_url_fragment = f"api.chronogenesis.net/club_profile?circle_id={self.circle_id}"
-            
-            async def response_handler(event: zd.cdp.network.ResponseReceived):
-                nonlocal captured_json
-                if target_url_fragment in event.response.url:
-                    try:
-                        # Fetch the body for this request
-                        body, _ = await page.send(zd.cdp.network.get_response_body(request_id=event.request_id))
-                        # Basic validation that it's the correct data
-                        if "club_friend_history" in body:
-                            captured_json = json.loads(body)
-                            logger.info(f"Captured API response for {event.response.url}")
-                    except Exception as e:
-                        logger.debug(f"Captured data, but failed to parse API body: {e}")
+        best_response = None
 
-            # 1. Navigate directly to the club profile with circle_id (skips fragile search UI)
-            direct_url = f"https://chronogenesis.net/club_profile?circle_id={self.circle_id}"
-            logger.info(f"Navigating directly to: {direct_url}")
-            page = await browser.get(direct_url)
+        try:
+            # Store request_ids only — fetch bodies after page settles
+            # (matching uma_tracking's proven pattern that avoids CDP listener deadlock)
+            captured_responses = {}
+
+            async def response_handler(*args, **kwargs):
+                if args and hasattr(args[0], 'response'):
+                    url = args[0].response.url
+                    if "api.chronogenesis.net/club_profile" in url:
+                        try:
+                            captured_responses[args[0].request_id] = url
+                        except Exception:
+                            pass
+
+            page = await browser.get("https://chronogenesis.net/club_profile")
             await page.send(zd.cdp.network.enable())
             page.add_handler(zd.cdp.network.ResponseReceived, response_handler)
 
-            # The page auto-loads data when circle_id is in the URL.
-            # If the API call already fired before our handler was attached,
-            # trigger a reload to ensure we capture it.
-            if not captured_json:
-                await asyncio.sleep(2)
-            if not captured_json:
-                logger.info("No API response captured yet, reloading to trigger data fetch...")
-                page = await browser.get(direct_url)
-                await page.send(zd.cdp.network.enable())
-                page.add_handler(zd.cdp.network.ResponseReceived, response_handler)
+            search_box = await page.select(".club-id-input", timeout=20)
+            await search_box.send_keys(self.circle_id)
+            await search_box.send_keys(zd.SpecialKeys.ENTER)
+            await asyncio.sleep(3)
 
-            # 3. Wait for data to be captured via network intercept
-            logger.info("Waiting for data capture...")
-            for _ in range(30): # 30 second timeout for the capture
-                if captured_json:
-                    break
-                await asyncio.sleep(1)
-                
-            if not captured_json:
-                logger.error("Timed out waiting for ChronoGenesis API response via UI flow")
-                return {}
+            # Click the result to ensure full club data is loaded
+            try:
+                results = await page.select_all(".club-results-row", timeout=10)
+                for result in results:
+                    content = result.text_all.lower()
+                    if self.circle_id in content:
+                        await result.click()
+                        break
+            except Exception:
+                pass
 
-            return self._parse_api_json(captured_json)
+            # Wait for background requests to complete
+            await asyncio.sleep(8)
 
+            target_url_prefix = f"https://api.chronogenesis.net/club_profile?circle_id={self.circle_id}"
+            logger.info(f"Captured {len(captured_responses)} club_profile request(s)")
+
+            for req_id, url in captured_responses.items():
+                try:
+                    response_body, _ = await page.send(
+                        zd.cdp.network.get_response_body(request_id=req_id)
+                    )
+                    if url.startswith(target_url_prefix) or "club_friend_history" in response_body:
+                        if best_response is None or "club_friend_history" in response_body:
+                            best_response = response_body
+                            logger.info(f"Selected response: {url}")
+                except Exception:
+                    pass
         finally:
             await browser.stop()
+
+        if not best_response:
+            logger.error("No ChronoGenesis API response captured")
+            return {}
+
+        return self._parse_api_json(json.loads(best_response))
 
     def _parse_api_json(self, data: dict) -> Dict[str, Dict]:
         """Parse core daily data from captured JSON"""
