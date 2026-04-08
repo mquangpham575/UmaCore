@@ -30,6 +30,12 @@ locals {
       - systemctl enable docker
       - systemctl start docker
       - usermod -aG docker ${var.admin_username}
+      # ---- Setup Swap (2GB) ----
+      - fallocate -l 2G /swapfile
+      - chmod 600 /swapfile
+      - mkswap /swapfile
+      - swapon /swapfile
+      - echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
       # ---- Create app directory ----
       - mkdir -p /opt/umacore
       - chown ${var.admin_username}:${var.admin_username} /opt/umacore

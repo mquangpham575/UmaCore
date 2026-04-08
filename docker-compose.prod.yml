@@ -16,6 +16,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+        reservations:
+          memory: 256M
     logging:
       driver: "json-file"
       options:
@@ -40,6 +46,12 @@ services:
       - ./logs:/app/logs
       - ./debug:/app/debug
     shm_size: 2gb
+    deploy:
+      resources:
+        limits:
+          memory: 2560M
+        reservations:
+          memory: 512M
     logging:
       driver: "json-file"
       options:
