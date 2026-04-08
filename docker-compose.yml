@@ -11,6 +11,7 @@ services:
       - .env
     volumes:
       - ./logs:/app/logs
+      - ./debug:/app/debug
     shm_size: 2gb
     environment:
       - DISPLAY=:99

@@ -67,11 +67,6 @@ class ChronoGenesisScraper(BaseScraper):
 
         logger.info(f"Starting zendriver UI-flow with executable: {executable}")
 
-        # Chrome user-agent prevents Cloudflare Turnstile from blocking Chromium
-        chrome_ua = (
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
-        )
 
         # We use headless=False because xvfb is now enabled in Docker
         browser = await zd.start(
@@ -154,7 +149,8 @@ class ChronoGenesisScraper(BaseScraper):
             logger.error("No ChronoGenesis API response captured")
             return {}
 
-        return self._parse_api_json(json.loads(best_response))
+        self._raw_response = json.loads(best_response)
+        return self._parse_api_json(self._raw_response)
 
     def _parse_api_json(self, data: dict) -> Dict[str, Dict]:
         """Parse core daily data from captured JSON"""
@@ -172,10 +168,12 @@ class ChronoGenesisScraper(BaseScraper):
             name = entry.get("friend_name", "Unknown")
             day = entry.get("actual_date")
             
-            # Use 'adjusted_interpolated_fan_gain' from uma_tracking, fallback to 'fan_count'
-            fans = entry.get("adjusted_interpolated_fan_gain")
-            if fans is None:
-                fans = entry.get("fan_count", 0)
+            # Chrono provides lifetime total as 'interpolated_fan_count' in history entries
+            lifetime = entry.get("interpolated_fan_count")
+            if lifetime is None:
+                lifetime = entry.get("fan_count", 0)
+            
+            gain = entry.get("adjusted_interpolated_fan_gain", 0)
             
             if not trainer_id:
                 continue
@@ -184,10 +182,10 @@ class ChronoGenesisScraper(BaseScraper):
                 member_data[trainer_id] = {
                     "name": name,
                     "trainer_id": trainer_id,
-                    "daily_map": {}
+                    "daily_map": {}, # day -> (lifetime, gain)
                 }
             
-            member_data[trainer_id]["daily_map"][day] = fans
+            member_data[trainer_id]["daily_map"][day] = (lifetime, gain)
             all_days.add(day)
 
         if not all_days:
@@ -197,20 +195,38 @@ class ChronoGenesisScraper(BaseScraper):
         self.club_start_day = day_numbers[0]
         self.current_day_count = day_numbers[-1]
         
-        logger.info(f"Parsed {len(member_data)} members. Data covers days {self.club_start_day} to {self.current_day_count}.")
+        # Set the data date based on current month/year and the latest day in history
+        now = date.today()
+        self._data_date = date(now.year, now.month, self.current_day_count)
+        
+        logger.info(f"Parsed {len(member_data)} members. Data covers days {self.club_start_day} to {self.current_day_count}. Data date: {self._data_date}")
 
         final_data = {}
         for tid, info in member_data.items():
+            # FILTER: only include members who are present in the latest snapshot
+            if self.current_day_count not in info["daily_map"]:
+                logger.debug(f"Skipping member {info['name']} (ID: {tid}) - no data for latest day {self.current_day_count}")
+                continue
+
+            # CALIBRATION: Find the baseline (lifetime fans before the first history entry)
+            # This ensures that even if history starts mid-month, growth is tracked correctly.
+            earliest_day = min(info["daily_map"].keys())
+            e_lifetime, e_gain = info["daily_map"][earliest_day]
+            baseline = e_lifetime - e_gain
+            
             fans_list = []
-            join_day = self.club_start_day
-            found_first = False
+            join_day = earliest_day
             
             for d in day_numbers:
-                f = info["daily_map"].get(d, 0)
-                fans_list.append(f)
-                if not found_first and f > 0:
-                    found_first = True
-                    join_day = d
+                if d in info["daily_map"]:
+                    lifetime, gain = info["daily_map"][d]
+                    # Monthly cumulative fans = Lifetime total - Baseline (fans at start of history)
+                    current_val = lifetime - baseline
+                else:
+                    # No data for this day in history
+                    current_val = 0
+                
+                fans_list.append(current_val)
             
             final_data[tid] = {
                 "name": info["name"],

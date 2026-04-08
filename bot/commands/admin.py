@@ -4,14 +4,16 @@ Administrative commands for quota management
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import datetime, time
+from datetime import datetime
+import io
+import json
 import logging
 import pytz
 import asyncio
 
 from scrapers import ChronoGenesisScraper, UmaMoeAPIScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, MonthlyInfoService
-from models import Member, QuotaRequirement, BotSettings, Club, ClubRankHistory
+from models import Member, QuotaRequirement, Club, ClubRankHistory
 from config.settings import USE_UMAMOE_API
 
 logger = logging.getLogger(__name__)
@@ -94,7 +96,7 @@ class AdminCommands(commands.Cog):
             current_date = current_datetime.date()
 
             set_by = f"{interaction.user.name}#{interaction.user.discriminator}"
-            quota_req = await QuotaRequirement.create(
+            await QuotaRequirement.create(
                 club_id=club_obj.club_id,
                 effective_date=current_date,
                 daily_quota=amount,
@@ -180,13 +182,13 @@ class AdminCommands(commands.Cog):
 
             channel = self.bot.get_channel(channel_id)
             if not channel:
-                await interaction.followup.send(f"❌ Channel not found. The board may have been deleted.")
+                await interaction.followup.send("❌ Channel not found. The board may have been deleted.")
                 return
 
             try:
                 message = await channel.fetch_message(message_id)
             except discord.NotFound:
-                await interaction.followup.send(f"❌ Message not found. Use `/post_monthly_info` to create a new one.")
+                await interaction.followup.send("❌ Message not found. Use `/post_monthly_info` to create a new one.")
                 return
 
             club_tz = pytz.timezone(club_obj.timezone)
@@ -409,15 +411,31 @@ class AdminCommands(commands.Cog):
 
                     if scraped_data:
                         break
-                except Exception as e:
+                except Exception:
                     if attempt == max_retries:
                         raise
                     await interaction.followup.send(f"⚠️ Attempt {attempt} failed, retrying in {retry_delay}s...")
                     await asyncio.sleep(retry_delay)
                     retry_delay *= 2
 
+            # Save raw response locally for troubleshooting (not sent to Discord)
+            raw_response = scraper.get_raw_response()
+            if raw_response:
+                try:
+                    import os
+                    from pathlib import Path
+                    debug_dir = Path(os.getcwd()) / "debug"
+                    debug_dir.mkdir(exist_ok=True)
+                    
+                    raw_json_str = json.dumps(raw_response, indent=2, ensure_ascii=False)
+                    debug_path = debug_dir / f"last_response_{club}.json"
+                    debug_path.write_text(raw_json_str, encoding="utf-8")
+                    logger.debug(f"Raw response saved to: {debug_path.absolute()}")
+                except Exception as e:
+                    logger.error(f"Failed to save debug JSON locally: {e}")
+            
             if not scraped_data:
-                await interaction.followup.send("❌ Failed to scrape data after all retries")
+                await interaction.followup.send("❌ Failed to parse any valid member data from the scraper.")
                 return
 
             # Use the scraper's data date in case of previous-month fallback (e.g. Day 1)
@@ -452,6 +470,15 @@ class AdminCommands(commands.Cog):
 
             # Process scraped data
             await interaction.followup.send("⚙️ Processing data...")
+            
+            # Log parsed data summary to console
+            logger.info(f"--- PARSED DATA SUMMARY FOR {club} ---")
+            for tid, info in list(scraped_data.items())[:5]: # Show first 5 members
+                logger.info(f"Member: {info['name']} (ID: {tid}), Join Day: {info['join_day']}, Monthly Fans: {info['fans'][-1]:,}")
+            if len(scraped_data) > 5:
+                logger.info(f"... and {len(scraped_data) - 5} more members")
+            logger.info("-" * 40)
+
             new_members, updated_members = await self.quota_calculator.process_scraped_data(
                 club_obj.club_id, scraped_data, current_date, current_day,
                 quota_period=club_obj.quota_period
@@ -554,7 +581,7 @@ class AdminCommands(commands.Cog):
                 await interaction.followup.send(f"❌ Member '{trainer_name}' already exists in {club}")
                 return
 
-            member = await Member.create(club_obj.club_id, trainer_name, join_date_obj, trainer_id)
+            await Member.create(club_obj.club_id, trainer_name, join_date_obj, trainer_id)
 
             await interaction.followup.send(
                 f"✅ Added member to {club}: {trainer_name} (joined {join_date}, ID: {trainer_id or 'N/A'})"

@@ -14,6 +14,7 @@ class BaseScraper(ABC):
     
     def __init__(self, url: str):
         self.url = url
+        self._raw_response: Optional[dict] = None
     
     @abstractmethod
     async def scrape(self) -> Dict[str, List[int]]:
@@ -69,5 +70,9 @@ class BaseScraper(ABC):
                 if latest_count < previous_count * 0.5:
                     logger.info(f"Monthly reset detected: {trainer_name} went from {previous_count} to {latest_count}")
                     return True
-        
+
         return False
+
+    def get_raw_response(self) -> Optional[dict]:
+        """Return the raw API/JSON response captured during scraping."""
+        return self._raw_response

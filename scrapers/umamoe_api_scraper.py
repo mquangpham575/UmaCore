@@ -85,6 +85,8 @@ class UmaMoeAPIScraper(BaseScraper):
                 primary_data = await self._fetch_month(session, year, month)
                 if not primary_data:
                     raise ValueError(f"Primary API request failed for {year}-{month:02d}")
+
+                self._raw_response = primary_data
                 
                 # On Day 1, also fetch current month for endpoint correction
                 endpoint_members = None

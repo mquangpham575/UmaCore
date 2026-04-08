@@ -207,6 +207,18 @@ class QuotaCalculator:
             # Use the last value in the fans array
             cumulative_fans = daily_fans[-1]
             
+            # Resolve the scraped join day into a full date
+            last_day_of_month = calendar.monthrange(data_date.year, data_date.month)[1]
+            if 1 <= detected_join_day <= last_day_of_month:
+                # Join day is within the current month being processed
+                scraped_join_date = date(data_date.year, data_date.month, detected_join_day)
+            else:
+                # Join day exceeds current month, must be from previous month
+                if data_date.month == 1:
+                    scraped_join_date = date(data_date.year - 1, 12, detected_join_day)
+                else:
+                    scraped_join_date = date(data_date.year, data_date.month - 1, detected_join_day)
+
             # Look up member by trainer_id first, then by name
             if trainer_id:
                 member = await Member.get_by_trainer_id(club_id, trainer_id)
@@ -214,29 +226,23 @@ class QuotaCalculator:
                 member = await Member.get_by_name(club_id, trainer_name)
             
             if not member:
-                # New member - resolve their join day into a full date
-                # detected_join_day is the day number in the scraped month (data_date.month)
-                # Check if it's a valid day in that month
-                last_day_of_month = calendar.monthrange(data_date.year, data_date.month)[1]
-                
-                if 1 <= detected_join_day <= last_day_of_month:
-                    # Join day is within the current month being processed
-                    join_date = date(data_date.year, data_date.month, detected_join_day)
-                else:
-                    # Join day exceeds current month, must be from previous month
-                    if data_date.month == 1:
-                        join_date = date(data_date.year - 1, 12, detected_join_day)
-                    else:
-                        join_date = date(data_date.year, data_date.month - 1, detected_join_day)
-                
-                member = await Member.create(club_id, trainer_name, join_date, trainer_id)
+                # New member
+                member = await Member.create(club_id, trainer_name, scraped_join_date, trainer_id)
                 new_members += 1
-                logger.info(f"New member added: {trainer_name} (ID: {trainer_id}, joined {join_date.strftime('%Y-%m-%d')})")
+                logger.info(f"New member added: {trainer_name} (ID: {trainer_id}, joined {scraped_join_date.strftime('%Y-%m-%d')})")
             else:
                 # Existing member
                 if member.trainer_name != trainer_name:
                     await member.update_name(trainer_name)
                 
+                # SELF-CORRECTION: If the scraper finds an EARLIER join date, update the DB
+                # (This fixes members whose join dates were "slipped" by previous scraper bugs)
+                if scraped_join_date < member.join_date:
+                    old_date = member.join_date
+                    await member.update_join_date(scraped_join_date)
+                    member.join_date = scraped_join_date # Update local object for subsequent calculations
+                    logger.info(f"Corrected join date for {trainer_name}: {old_date} -> {scraped_join_date}")
+
                 # Reactivate if previously auto-deactivated
                 if not member.is_active:
                     if member.manually_deactivated:
@@ -244,8 +250,11 @@ class QuotaCalculator:
                         continue
                     else:
                         await member.activate()
-                        await member.update_join_date(data_date)
-                        logger.info(f"Reactivated returning member: {trainer_name} (join_date reset to {data_date})")
+                        # Only reset join_date to today if the scraped data doesn't provide a specific one
+                        # (returning members usually get a reset, but Chrono history tells us exactly when they rejoined)
+                        if scraped_join_date > member.join_date:
+                            await member.update_join_date(data_date)
+                            logger.info(f"Reactivated returning member: {trainer_name} (join_date local-reset to {data_date})")
             
             # last_seen tracks when we actually observed them (wall-clock date)
             await member.update_last_seen(current_date)
@@ -258,8 +267,11 @@ class QuotaCalculator:
             )
             
             deficit_surplus = self.calculate_deficit_surplus(cumulative_fans, expected_fans)
-            
-            days_behind = await self._calculate_days_behind(member.member_id, deficit_surplus, data_date)
+
+            # Store history keyed to data_date
+            # Fetch current daily quota for the effort-based days_behind calculation
+            stored_quota = await QuotaRequirement.get_quota_for_date(club_id, data_date)
+            days_behind = await self._calculate_days_behind(member.member_id, deficit_surplus, data_date, stored_quota)
             
             # Store history keyed to data_date
             await QuotaHistory.create(
@@ -281,35 +293,18 @@ class QuotaCalculator:
         return new_members, updated_members
     
     async def _calculate_days_behind(self, member_id: UUID, current_deficit_surplus: int,
-                                    data_date: date) -> int:
-        """Calculate how many consecutive days a member has been behind"""
+                                    data_date: date, daily_quota: int = 5000000) -> int:
+        """Calculate how many 'days of work' a member is behind based on daily quota"""
         if current_deficit_surplus >= 0:
             return 0
 
-        recent_history = await QuotaHistory.get_last_n_days(member_id, 10)
-
-        if not recent_history:
-            return 1
-
-        # Exclude records from data_date or later, and from a different month
-        recent_history = [
-            h for h in recent_history
-            if h.date < data_date
-            and h.date.year == data_date.year
-            and h.date.month == data_date.month
-        ]
-
-        # Count consecutive days with negative deficit before data_date
-        consecutive_days = 1  # Count the current day
-
-        for history in recent_history:
-            if history.deficit_surplus < 0:
-                consecutive_days += 1
-            else:
-                break
-
-        logger.debug(f"Member {member_id}: {consecutive_days} consecutive days behind")
-        return consecutive_days
+        # Formula: ceil(abs(deficit) / daily_quota)
+        # Represents how many full days of work are missing.
+        deficit = abs(current_deficit_surplus)
+        days_behind = math.ceil(deficit / daily_quota) if daily_quota > 0 else 1
+        
+        logger.debug(f"Member {member_id}: {days_behind} effort-days behind (deficit: {deficit:,})")
+        return days_behind
     
     @staticmethod
     def get_period_info(quota_period: str, current_date: date) -> Optional[Dict]:
@@ -397,11 +392,15 @@ class QuotaCalculator:
             else:
                 behind.append(member_status)
 
-        # Sort on_track by surplus (descending)
-        on_track.sort(key=lambda x: x['history'].deficit_surplus, reverse=True)
+        # Sort on_track by Average Fans per Day (descending - most efficient performers first)
+        def get_efficiency(item):
+            days = self.calculate_days_active_in_month(item['member'].join_date, current_date)
+            return item['history'].cumulative_fans / max(1, days)
+            
+        on_track.sort(key=get_efficiency, reverse=True)
 
-        # Sort behind by deficit (most behind first)
-        behind.sort(key=lambda x: x['history'].deficit_surplus)
+        # Sort behind by deficit (descending - least behind first, to follow the flow from on_track)
+        behind.sort(key=lambda x: x['history'].deficit_surplus, reverse=True)
 
         return {
             'on_track': on_track,
