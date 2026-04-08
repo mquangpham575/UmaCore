@@ -13,7 +13,8 @@ RUN apt-get update && apt-get install -y \
     xvfb \
     xdg-utils \
     && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && apt-get install -y ./google-chrome-stable_current_amd64.deb \
+    && dpkg -i ./google-chrome-stable_current_amd64.deb || true \
+    && apt-get install -f -y \
     && rm google-chrome-stable_current_amd64.deb \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
