@@ -1,15 +1,12 @@
-FROM --platform=linux/amd64 python:3.11-slim-bookworm
+FROM python:3.11-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive
-# Install Google Chrome .deb directly.
-# Debian chromium gets blocked by Cloudflare Turnstile on ChronoGenesis.
-# Platform pinned to amd64 above since Chrome has no arm64 Linux build.
+# Install Chromium (native arm64/amd64 — Google Chrome has no arm64 Linux build).
+# Chromium + Chrome user-agent avoids Cloudflare Turnstile blocking on ChronoGenesis.
 RUN apt-get update && apt-get install -y \
     wget gnupg curl unzip xvfb xdg-utils \
-    && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && apt-get install -y ./google-chrome-stable_current_amd64.deb \
-    && rm google-chrome-stable_current_amd64.deb \
+    chromium \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .

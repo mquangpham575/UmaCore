@@ -66,19 +66,25 @@ class ChronoGenesisScraper(BaseScraper):
                 return {}
 
         logger.info(f"Starting zendriver UI-flow with executable: {executable}")
-        
+
+        # Chrome user-agent prevents Cloudflare Turnstile from blocking Chromium
+        chrome_ua = (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+        )
+
         # We use headless=False because xvfb is now enabled in Docker
         browser = await zd.start(
             browser="chrome" if system == "Linux" else "edge",
             browser_executable_path=executable,
-            headless=False, # xvfb-run provides a virtual display
+            headless=False, # Revert to use virtual display
             sandbox=False,
             browser_args=[
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
                 "--no-sandbox",
             ],
-            browser_connection_timeout=1.0,
+            browser_connection_timeout=5.0,
             browser_connection_max_tries=30,
         )
 
@@ -98,11 +104,15 @@ class ChronoGenesisScraper(BaseScraper):
                         except Exception:
                             pass
 
+            # Navigate directly to the club profile page like uma_tracking/src/chrono_scraper.py
             page = await browser.get("https://chronogenesis.net/club_profile")
             await page.send(zd.cdp.network.enable())
             page.add_handler(zd.cdp.network.ResponseReceived, response_handler)
+            
+            # Wait for any potential redirection or loading
+            await asyncio.sleep(5)
 
-            search_box = await page.select(".club-id-input", timeout=20)
+            search_box = await page.select(".club-id-input", timeout=60)
             await search_box.send_keys(self.circle_id)
             await search_box.send_keys(zd.SpecialKeys.ENTER)
             await asyncio.sleep(3)
@@ -129,7 +139,9 @@ class ChronoGenesisScraper(BaseScraper):
                     response_body, _ = await page.send(
                         zd.cdp.network.get_response_body(request_id=req_id)
                     )
-                    if url.startswith(target_url_prefix) or "club_friend_history" in response_body:
+                    # Priority selection matching uma_tracking logic:
+                    # Prefer responses that explicitly contain history data or match the target URL
+                    if "club_friend_history" in response_body or url.startswith(target_url_prefix):
                         if best_response is None or "club_friend_history" in response_body:
                             best_response = response_body
                             logger.info(f"Selected response: {url}")
@@ -159,7 +171,11 @@ class ChronoGenesisScraper(BaseScraper):
             trainer_id = str(entry.get("friend_viewer_id", ""))
             name = entry.get("friend_name", "Unknown")
             day = entry.get("actual_date")
-            fans = entry.get("fan_count", 0) 
+            
+            # Use 'adjusted_interpolated_fan_gain' from uma_tracking, fallback to 'fan_count'
+            fans = entry.get("adjusted_interpolated_fan_gain")
+            if fans is None:
+                fans = entry.get("fan_count", 0)
             
             if not trainer_id:
                 continue
