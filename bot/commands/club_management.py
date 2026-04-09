@@ -45,9 +45,8 @@ class ClubManagementCommands(commands.Cog):
     ])
     async def add_club(self, interaction: discord.Interaction,
                        club_name: str,
-                       scrape_url: str,
-                       circle_id: str = None,
-                       daily_quota: int = 1000000,
+                       circle_id: str,
+                       daily_quota: int,
                        quota_period: app_commands.Choice[str] = None,
                        timezone: str = "Europe/Amsterdam",
                        scrape_time: str = "16:00"):
@@ -61,8 +60,8 @@ class ClubManagementCommands(commands.Cog):
                 await interaction.followup.send(f"❌ Club '{club_name}' already exists")
                 return
             
-            # Validate circle_id format if provided
-            if circle_id is not None and circle_id != "" and not circle_id.isdigit():
+            # Validate circle_id format
+            if not circle_id.isdigit():
                 await interaction.followup.send(
                     f"❌ Invalid Circle ID format: `{circle_id}`\n\n"
                     f"The circle_id must be a **numeric ID** from Uma.moe.\n\n"
@@ -73,6 +72,9 @@ class ClubManagementCommands(commands.Cog):
                     f"   Example: `https://uma.moe/circles/860280110` → use `860280110`"
                 )
                 return
+            
+            # Auto-generate scrape_url from circle_id
+            scrape_url = f"https://chronogenesis.net/club_profile?circle_id={circle_id}"
             
             # Validate timezone
             try:
@@ -91,15 +93,12 @@ class ClubManagementCommands(commands.Cog):
                 await interaction.followup.send("❌ Invalid scrape time format. Use HH:MM (e.g., 16:00)")
                 return
             
-            # Normalise circle_id: treat empty string as None
-            resolved_circle_id = circle_id if circle_id and circle_id != "" else None
-            
             resolved_quota_period = quota_period.value if quota_period else 'daily'
 
             club = await Club.create(
                 club_name=club_name,
                 scrape_url=scrape_url,
-                circle_id=resolved_circle_id,
+                circle_id=circle_id,
                 guild_id=interaction.guild_id,
                 daily_quota=daily_quota,
                 quota_period=resolved_quota_period,
@@ -127,8 +126,8 @@ class ClubManagementCommands(commands.Cog):
             embed.add_field(
                 name="Club Details",
                 value=f"**Name:** {club_name}\n"
-                      f"**Circle ID:** {resolved_circle_id or 'Not set'}\n"
-                      f"**URL:** {scrape_url}",
+                      f"**Circle ID:** {circle_id}\n"
+                      f"**Scrape URL:** {scrape_url}",
                 inline=False
             )
             
@@ -140,20 +139,11 @@ class ClubManagementCommands(commands.Cog):
                 inline=False
             )
             
-            # Show scraper info based on whether circle_id was provided
-            if resolved_circle_id:
-                embed.add_field(
-                    name="🚀 Scraper",
-                    value="Using Uma.moe API (fast path)",
-                    inline=False
-                )
-            else:
-                embed.add_field(
-                    name="⚠️ Scraper",
-                    value="Using ChronoGenesis scraper.\n"
-                          "Add circle_id later with `/edit_club` for better performance.",
-                    inline=False
-                )
+            embed.add_field(
+                name="🚀 Scraper",
+                value="Using Uma.moe API (fast path)",
+                inline=False
+            )
             
             embed.add_field(
                 name="Next Steps",
@@ -166,7 +156,7 @@ class ClubManagementCommands(commands.Cog):
             embed.set_footer(text=f"Added by {interaction.user}")
             
             await interaction.followup.send(embed=embed)
-            logger.info(f"Club '{club_name}' added by {interaction.user} (circle_id: {resolved_circle_id}, guild_id: {interaction.guild_id})")
+            logger.info(f"Club '{club_name}' added by {interaction.user} (circle_id: {circle_id}, guild_id: {interaction.guild_id})")
             
         except Exception as e:
             logger.error(f"Error in add_club: {e}", exc_info=True)
