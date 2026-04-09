@@ -140,12 +140,6 @@ class ClubManagementCommands(commands.Cog):
             )
             
             embed.add_field(
-                name="🚀 Scraper",
-                value="Using Uma.moe API (fast path)",
-                inline=False
-            )
-            
-            embed.add_field(
                 name="Next Steps",
                 value=f"1. Set channels: `/set_report_channel club:{club_name}` and `/set_alert_channel club:{club_name}`\n"
                       f"2. Adjust settings: `/edit_club club:{club_name}`\n"
