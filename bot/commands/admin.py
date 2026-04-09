@@ -15,27 +15,10 @@ from scrapers import ChronoGenesisScraper, UmaMoeAPIScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, MonthlyInfoService
 from models import Member, QuotaRequirement, Club, ClubRankHistory
 from config.settings import USE_UMAMOE_API
+from bot.decorators import is_admin_or_authorized
 import typing
 
 logger = logging.getLogger(__name__)
-
-
-def is_admin_or_authorized():
-    """Allows Administrators or specific UMA roles (Leader, Officer, Manager)"""
-    async def predicate(interaction: discord.Interaction) -> bool:
-        # Admins are always allowed
-        if interaction.user.guild_permissions.administrator:
-            return True
-
-        # Check for specific role names
-        allowed_roles = {"UMA LEADER", "UMA OFFICER", "UMA MANAGER"}
-        # Ensure we have roles (Member object)
-        if hasattr(interaction.user, 'roles'):
-            user_roles = {role.name.upper() for role in interaction.user.roles}
-            return any(role in allowed_roles for role in user_roles)
-
-        return False
-    return app_commands.check(predicate)
 
 
 class AdminCommands(commands.Cog):
@@ -93,7 +76,7 @@ class AdminCommands(commands.Cog):
         return False
 
     @app_commands.command(name="quota", description="Set the daily quota requirement")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def set_quota(self, interaction: discord.Interaction, amount: int, club: str):
         """Set the daily quota requirement"""
         await interaction.response.defer()
@@ -182,7 +165,7 @@ class AdminCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="update_monthly_info", description="Update the monthly info board")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def update_monthly_info(self, interaction: discord.Interaction, club: str):
         """Update the existing monthly info board"""
         await interaction.response.defer()
@@ -240,7 +223,7 @@ class AdminCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="sync_guild", description="Force-sync slash commands to this server (instant update)")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def sync_guild(self, interaction: discord.Interaction):
         """Manually sync commands to the current guild for instant updates"""
         await interaction.response.defer(ephemeral=True)
@@ -254,7 +237,7 @@ class AdminCommands(commands.Cog):
             await interaction.followup.send(f"❌ Sync failed: {str(e)}", ephemeral=True)
 
     @app_commands.command(name="quota_history", description="View quota changes this month")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def quota_history(self, interaction: discord.Interaction, club: str):
         """View quota change history for the current month"""
         await interaction.response.defer()
@@ -320,7 +303,7 @@ class AdminCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="delete_quota", description="Delete a specific quota requirement entry by date and amount")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def delete_quota(self, interaction: discord.Interaction, club: str, date: str, amount: int):
         """Delete a specific quota requirement entry (use /quota_history to find the values)"""
         await interaction.response.defer()
@@ -624,7 +607,7 @@ class AdminCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="add_member", description="Manually add a new member")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def add_member(self, interaction: discord.Interaction,
                          trainer_name: str, join_date: str, club: str, trainer_id: str = None):
         """Manually add a member (format: YYYY-MM-DD)"""
@@ -664,7 +647,7 @@ class AdminCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="deactivate_member", description="Manually deactivate a member")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def deactivate_member(self, interaction: discord.Interaction, trainer_name: str, club: str):
         """Manually deactivate a member"""
         await interaction.response.defer()
@@ -712,7 +695,7 @@ class AdminCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="activate_member", description="Reactivate a member")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def activate_member(self, interaction: discord.Interaction, trainer_name: str, club: str):
         """Reactivate a deactivated member"""
         await interaction.response.defer()
@@ -754,7 +737,7 @@ class AdminCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="bomb_status", description="View all active bombs")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def bomb_status(self, interaction: discord.Interaction, club: str):
         """View all active bombs for a club"""
         await interaction.response.defer()
@@ -804,7 +787,7 @@ class AdminCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="recalculate", description="Recalculate days-behind counts and bomb statuses from current history without clearing data")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def recalculate(self, interaction: discord.Interaction, club: str):
         """Recalculate days_behind and bombs based on existing quota history"""
         await interaction.response.defer()
@@ -896,7 +879,7 @@ class AdminCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="reset_month", description="Manually trigger monthly reset: clears all history, bombs, and quota requirements")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def reset_month(self, interaction: discord.Interaction, club: str):
         """Manually reset all monthly data for a club (for use when auto-reset fails)"""
         await interaction.response.defer()
@@ -958,7 +941,7 @@ class AdminCommands(commands.Cog):
 
 
     @app_commands.command(name="check_channel", description="Diagnose bot permissions for a specific channel ID")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def check_channel(self, interaction: discord.Interaction, channel_id: str):
         """Diagnose channel permissions and accessibility"""
         await interaction.response.defer()

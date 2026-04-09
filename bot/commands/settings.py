@@ -12,6 +12,7 @@ from typing import Annotated
 
 from models import Club
 from services import MonthlyInfoService
+from bot.decorators import is_admin_or_authorized
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class SettingsCommands(commands.Cog):
             return []
     
     @app_commands.command(name="set_report_channel", description="Set the channel for daily reports")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def set_report_channel(self, interaction: discord.Interaction, channel: discord.abc.GuildChannel, club: str):
         """Set the channel where daily reports will be posted"""
         await interaction.response.defer()
@@ -73,7 +74,7 @@ class SettingsCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="set_report_channel_id", description="Set report channel using a raw ID (useful for threads)")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def set_report_channel_id(self, interaction: discord.Interaction, channel_id: str, club: str):
         """Set the report channel via raw ID (bypass the picker)"""
         await interaction.response.defer()
@@ -111,7 +112,7 @@ class SettingsCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
     @app_commands.command(name="set_alert_channel", description="Set the channel for alerts (bombs, kicks)")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def set_alert_channel(self, interaction: discord.Interaction, channel: discord.abc.GuildChannel, club: str):
         """Set the channel where alerts will be posted"""
         await interaction.response.defer()
@@ -147,7 +148,7 @@ class SettingsCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="set_alert_channel_id", description="Set alert channel using a raw ID (useful for threads)")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def set_alert_channel_id(self, interaction: discord.Interaction, channel_id: str, club: str):
         """Set the alert channel via raw ID (bypass the picker)"""
         await interaction.response.defer()
@@ -184,8 +185,8 @@ class SettingsCommands(commands.Cog):
             logger.error(f"Error in set_alert_channel_id: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
-    @app_commands.command(name="channel_settings", description="View current channel configuration")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="channel_settings", description="View current configuration for this club")
+    @is_admin_or_authorized()
     async def channel_settings(self, interaction: discord.Interaction, club: str):
         """View current channel settings"""
         await interaction.response.defer()
@@ -300,7 +301,7 @@ class SettingsCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
     @app_commands.command(name="post_monthly_info", description="Post the monthly info board (auto-updates)")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def post_monthly_info(self, interaction: discord.Interaction, club: str, channel: discord.abc.GuildChannel = None):
         """Post or update the monthly information board"""
         await interaction.response.defer()
