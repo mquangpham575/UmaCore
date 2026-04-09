@@ -20,6 +20,24 @@ import typing
 logger = logging.getLogger(__name__)
 
 
+def is_admin_or_authorized():
+    """Allows Administrators or specific UMA roles (Leader, Officer, Manager)"""
+    async def predicate(interaction: discord.Interaction) -> bool:
+        # Admins are always allowed
+        if interaction.user.guild_permissions.administrator:
+            return True
+
+        # Check for specific role names
+        allowed_roles = {"UMA LEADER", "UMA OFFICER", "UMA MANAGER"}
+        # Ensure we have roles (Member object)
+        if hasattr(interaction.user, 'roles'):
+            user_roles = {role.name.upper() for role in interaction.user.roles}
+            return any(role in allowed_roles for role in user_roles)
+
+        return False
+    return app_commands.check(predicate)
+
+
 class AdminCommands(commands.Cog):
     """Administrative commands for quota management"""
 
@@ -365,7 +383,7 @@ class AdminCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="force_check", description="Manually trigger a quota check and report")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_admin_or_authorized()
     async def force_check(self, interaction: discord.Interaction, club: str):
         """Manually trigger the daily check"""
         await interaction.response.defer()
