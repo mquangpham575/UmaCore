@@ -132,7 +132,7 @@ class Club:
                    monthly_info_message_id, created_at, updated_at
             FROM clubs
             WHERE guild_id = $1 OR guild_id IS NULL
-            ORDER BY club_name
+            ORDER BY daily_quota DESC, club_name ASC
         """
         rows = await db.fetch(query, guild_id)
         return [cls(**dict(row)) for row in rows]
