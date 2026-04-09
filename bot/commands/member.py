@@ -427,13 +427,17 @@ class MemberCommands(commands.Cog):
         # Calculate streak and get history
         history_records = await QuotaHistory.get_last_n_days(member.member_id, 100)
         
-        # Use actual number of days with data
-        days_active = len(history_records) if history_records else 1
-        avg_daily = latest_history.cumulative_fans / max(1, days_active) if days_active > 0 else 0
+        # Use calendar days elapsed for more accurate averages (accounts for gaps)
+        days_tracked = len(history_records) if history_records else 1
+        if history_records:
+            days_elapsed = (history_records[0].date - history_records[-1].date).days + 1
+        else:
+            days_elapsed = 1
+            
+        avg_daily = latest_history.cumulative_fans / max(1, days_elapsed)
         
-        # Calculate streak
+        # Calculate streak (consecutive days on track)
         streak_days = 0
-        
         if latest_history.deficit_surplus >= 0:
             streak_days = 1
             for record in history_records[1:]:
@@ -442,15 +446,17 @@ class MemberCommands(commands.Cog):
                 else:
                     break
         
-        # Get best day
+        # Get best day (only compare consecutive records to avoid gap-inflation)
         best_day_fans = 0
         if len(history_records) >= 2:
             for i in range(len(history_records) - 1):
                 current = history_records[i]
                 previous = history_records[i + 1]
-                daily_gain = current.cumulative_fans - previous.cumulative_fans
-                if daily_gain > best_day_fans:
-                    best_day_fans = daily_gain
+                # Only count as a single day gain if records are exactly 1 day apart
+                if (current.date - previous.date).days == 1:
+                    daily_gain = current.cumulative_fans - previous.cumulative_fans
+                    if daily_gain > best_day_fans:
+                        best_day_fans = daily_gain
         
         # Format stats
         if avg_daily >= 1_000_000:
@@ -481,7 +487,7 @@ class MemberCommands(commands.Cog):
         
         embed.add_field(
             name="📊 Statistics",
-            value=f"**Days Active:** {days_active}\n"
+            value=f"**Days Tracked:** {days_tracked} ({days_elapsed}d elapsed)\n"
                   f"**Avg Daily:** {avg_formatted}/day\n"
                   f"**Best Day:** +{best_formatted}\n"
                   f"**Streak:** {streak_days} day{'s' if streak_days != 1 else ''} {streak_emoji}",
