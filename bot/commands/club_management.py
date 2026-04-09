@@ -297,6 +297,51 @@ class ClubManagementCommands(commands.Cog):
             logger.error(f"Error in activate_club: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
+    @app_commands.command(name="deactivate_club", description="Deactivate a club (Staff only)")
+    @is_admin_or_authorized()
+    async def deactivate_club(self, interaction: discord.Interaction, club: str):
+        """Deactivate a club (stops daily scraping)"""
+        await interaction.response.defer()
+        
+        try:
+            club_obj = await Club.get_by_name(club)
+            
+            if not club_obj:
+                await interaction.followup.send(f"❌ Club '{club}' not found")
+                return
+            
+            if not club_obj.belongs_to_guild(interaction.guild_id):
+                await interaction.followup.send(f"❌ Club '{club}' is not registered in this server.")
+                return
+            
+            if not club_obj.is_active:
+                await interaction.followup.send(f"ℹ️ Club '{club}' is already inactive")
+                return
+            
+            await club_obj.deactivate()
+            
+            embed = discord.Embed(
+                title="✅ Club Deactivated",
+                description=f"**{club}** has been deactivated",
+                color=discord.Color.orange(),
+                timestamp=discord.utils.utcnow()
+            )
+            
+            embed.add_field(
+                name="ℹ️ What this means",
+                value="Daily scraping and reports are paused for this club. All data is preserved. Use `/activate_club` to resume.",
+                inline=False
+            )
+            
+            embed.set_footer(text=f"Deactivated by {interaction.user}")
+            
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Club '{club}' deactivated by {interaction.user}")
+            
+        except Exception as e:
+            logger.error(f"Error in deactivate_club: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}")
+    
     @app_commands.command(name="list_clubs", description="View all registered clubs")
     async def list_clubs(self, interaction: discord.Interaction):
         """List clubs registered in this server"""
@@ -576,6 +621,7 @@ class ClubManagementCommands(commands.Cog):
 
     remove_club.autocomplete('club')(club_autocomplete)
     activate_club.autocomplete('club')(club_autocomplete)
+    deactivate_club.autocomplete('club')(club_autocomplete)
     edit_club.autocomplete('club')(club_autocomplete)
     transfer_club.autocomplete('club')(global_club_autocomplete)
 

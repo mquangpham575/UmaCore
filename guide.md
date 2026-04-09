@@ -39,6 +39,7 @@ _ _
 **🛠️ Setup & Configuration**
 *   **/add_club** — Register a new club to track in this server.
 *   **/edit_club** — Change settings like Timezone, Scrape Time, or Bomb rules.
+*   **/activate_club** / **/deactivate_club** — Pause or resume tracking for a specific club.
 *   **/set_report_channel** — Select where daily reports are posted.
 *   **/set_alert_channel** — Select where bomb/kick alerts are posted.
 *   **/post_monthly_info** — Create an auto-updating info board in a channel.
