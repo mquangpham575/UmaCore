@@ -189,15 +189,15 @@ class BotTasks:
                         f"Failed to scrape data after {max_retries} attempts.\n\n"
                         f"**Last error:** {str(last_error)}\n\n"
                         f"**Most likely cause:**\n"
-                        f"• Data for current day not yet available on Uma.moe\n"
-                        f"• Uma.moe typically updates around 15:10 UTC daily\n\n"
+                        f"• Data for current day not yet available on { 'Uma.moe' if USE_UMAMOE_API else 'ChronoGenesis' }\n"
+                        f"• { 'Uma.moe' if USE_UMAMOE_API else 'Chrono' } typically updates around 15:10 UTC daily\n\n"
                         f"**Other possible causes:**\n"
-                        f"• Uma.moe API is down or unreachable\n"
+                        f"• { 'Uma.moe API' if USE_UMAMOE_API else 'ChronoGenesis' } is down or unreachable\n"
                         f"• Network timeout\n"
-                        f"• Invalid circle_id\n\n"
+                        f"{ f'• Invalid circle_id' if USE_UMAMOE_API else '• Invalid scrape URL' }\n\n"
                         f"**What to do:**\n"
                         f"• Wait a few hours and try `/force_check` again\n"
-                        f"• Check uma.moe directly to verify data availability"
+                        f"• Check { 'uma.moe' if USE_UMAMOE_API else 'chronogenesis.net' } directly to verify data availability"
                     )
                     logger.error(f"Scraping failed for {club.club_name}: {error_msg}")
 

@@ -11,6 +11,8 @@ import asyncio
 
 from models import Club
 
+from config.settings import USE_UMAMOE_API
+
 logger = logging.getLogger(__name__)
 
 # Bot author ID for pre-migration club deletion
@@ -330,13 +332,11 @@ class ClubManagementCommands(commands.Cog):
                 )
                 
                 # Scraper type indicator
-                if club.circle_id:
-                    if club.is_circle_id_valid():
-                        scraper_info = "\n**Scraper:** Uma.moe API 🚀"
-                    else:
-                        scraper_info = "\n**Scraper:** ⚠️ Invalid circle_id"
+                if USE_UMAMOE_API and club.circle_id and club.is_circle_id_valid():
+                    scraper_info = "\n**Scraper:** Uma.moe API 🚀"
                 else:
-                    scraper_info = "\n**Scraper:** ChronoGenesis"
+                    source_desc = "ChronoGenesis" if not club.circle_id else "Chrono (via circle_id)"
+                    scraper_info = f"\n**Scraper:** {source_desc}"
 
                 # Bomb status indicator
                 bomb_status = "Enabled ✅" if club.bombs_enabled else "Disabled ❌"
@@ -464,7 +464,8 @@ class ClubManagementCommands(commands.Cog):
             for key, value in updates.items():
                 if key == 'circle_id':
                     if value:
-                        changes_text.append(f"**Circle ID:** {value} (Uma.moe API enabled 🚀)")
+                        scraper_desc = "Uma.moe API enabled 🚀" if USE_UMAMOE_API else "Chrono (via circle_id)"
+                        changes_text.append(f"**Circle ID:** {value} ({scraper_desc})")
                     else:
                         changes_text.append(f"**Circle ID:** Removed (will use ChronoGenesis)")
                 elif key == 'daily_quota':

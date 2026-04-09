@@ -409,8 +409,9 @@ class AdminCommands(commands.Cog):
                 logger.info(f"Using Uma.moe API scraper for {club_obj.club_name} (circle_id: {club_obj.circle_id})")
             else:
                 scraper = ChronoGenesisScraper(club_obj.scrape_url)
-                await interaction.followup.send(f"Using ChronoGenesis scraper for {club}...")
-                logger.info(f"Using ChronoGenesis scraper for {club_obj.club_name}")
+                source_name = "Chrono (via circle_id)" if club_obj.circle_id else "ChronoGenesis"
+                await interaction.followup.send(f"Using {source_name} scraper for {club}...")
+                logger.info(f"Using {source_name} scraper for {club_obj.club_name}")
 
             # Scrape with retry logic
             max_retries = 3
