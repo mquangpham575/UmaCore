@@ -87,17 +87,22 @@ class SettingsCommands(commands.Cog):
 
             # Verification
             channel = self.bot.get_channel(cid)
+            warning = ""
             if not channel:
                 try:
                     channel = await self.bot.fetch_channel(cid)
-                except Exception:
-                    pass
+                except discord.NotFound:
+                    warning = "\n⚠️ **Warning:** Channel ID not found. Reports may fail if the ID is incorrect."
+                except discord.Forbidden:
+                    warning = "\n⚠️ **Warning:** Bot lacks permission to access this channel. Reports may fail."
+                except Exception as e:
+                    logger.error(f"Error verifying channel {cid}: {e}")
             
             await club_obj.set_channels(report_channel_id=cid)
             
-            mention = channel.mention if channel else f"ID: {cid}"
-            await interaction.followup.send(f"✅ Set daily reports for **{club}** to {mention}")
-            logger.info(f"Report channel ID set to {cid} for {club} by {interaction.user}")
+            mention = channel.mention if channel else f"ID: `{cid}`"
+            await interaction.followup.send(f"✅ Set daily reports for **{club}** to {mention}{warning}")
+            logger.info(f"Report channel ID set to {cid} for {club} by {interaction.user}{' (with fetch warning)' if warning else ''}")
             
         except ValueError:
             await interaction.followup.send("❌ Invalid ID format. Please provide a numeric ID.")
@@ -156,17 +161,22 @@ class SettingsCommands(commands.Cog):
 
             # Verification
             channel = self.bot.get_channel(cid)
+            warning = ""
             if not channel:
                 try:
                     channel = await self.bot.fetch_channel(cid)
-                except Exception:
-                    pass
+                except discord.NotFound:
+                    warning = "\n⚠️ **Warning:** Channel ID not found. Alerts may fail if the ID is incorrect."
+                except discord.Forbidden:
+                    warning = "\n⚠️ **Warning:** Bot lacks permission to access this channel. Alerts may fail."
+                except Exception as e:
+                    logger.error(f"Error verifying channel {cid}: {e}")
             
             await club_obj.set_channels(alert_channel_id=cid)
             
-            mention = channel.mention if channel else f"ID: {cid}"
-            await interaction.followup.send(f"✅ Set alerts for **{club}** to {mention}")
-            logger.info(f"Alert channel ID set to {cid} for {club} by {interaction.user}")
+            mention = channel.mention if channel else f"ID: `{cid}`"
+            await interaction.followup.send(f"✅ Set alerts for **{club}** to {mention}{warning}")
+            logger.info(f"Alert channel ID set to {cid} for {club} by {interaction.user}{' (with fetch warning)' if warning else ''}")
             
         except ValueError:
             await interaction.followup.send("❌ Invalid ID format. Please provide a numeric ID.")

@@ -176,7 +176,7 @@ class ReportGenerator:
             return f"**{member.trainer_name}**: -{self.format_fans_short(deficit)} ({days_text} behind)"
         else:
             surplus = history.deficit_surplus
-            return f"**{member.trainer_name}**: +{self.format_fans_short(surplus)} ({self.format_number(history.cumulative_fans)} total)"
+            return f"**{member.trainer_name}**: +{self.format_fans_short(surplus)} ({self.format_fans_short(history.cumulative_fans)} total)"
 
     def _split_into_sections(self, items: List[Dict], formatter, max_length: int = 1000) -> List[str]:
         """Split a list of items into text sections that fit within Discord's character limits"""
@@ -337,7 +337,7 @@ class ReportGenerator:
             lambda item: (
                 f"🎉 **{item['member'].trainer_name}**: "
                 f"+{item['history'].deficit_surplus:,} fans surplus "
-                f"({item['history'].cumulative_fans:,} total)"
+                f"({self.format_fans_short(item['history'].cumulative_fans)} total)"
             ),
             max_length=1000
         )

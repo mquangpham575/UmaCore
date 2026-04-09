@@ -383,20 +383,32 @@ class AdminCommands(commands.Cog):
             report_channel = self.bot.get_channel(club_obj.report_channel_id)
             if not report_channel:
                 try:
+                    logger.debug(f"Channel {club_obj.report_channel_id} not in cache, fetching...")
                     report_channel = await self.bot.fetch_channel(club_obj.report_channel_id)
-                except Exception:
+                except discord.NotFound:
+                    logger.error(f"Report channel {club_obj.report_channel_id} not found for {club}")
+                    await interaction.followup.send(f"❌ Report channel (ID: `{club_obj.report_channel_id}`) was not found. Please verify the ID.")
+                    return
+                except discord.Forbidden:
+                    logger.error(f"No permission to see report channel {club_obj.report_channel_id} for {club}")
+                    await interaction.followup.send(f"❌ The bot does not have permission to access the report channel (ID: `{club_obj.report_channel_id}`).")
+                    return
+                except Exception as e:
+                    logger.error(f"Error fetching report channel {club_obj.report_channel_id}: {e}")
                     pass
 
             alert_channel_id = club_obj.alert_channel_id or club_obj.report_channel_id
             alert_channel = self.bot.get_channel(alert_channel_id)
             if not alert_channel:
                 try:
+                    logger.debug(f"Alert channel {alert_channel_id} not in cache, fetching...")
                     alert_channel = await self.bot.fetch_channel(alert_channel_id)
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error fetching alert channel {alert_channel_id}: {e}")
                     pass
 
             if not report_channel:
-                await interaction.followup.send(f"❌ Report channel not found for {club}. Use `/set_report_channel` first.")
+                await interaction.followup.send(f"❌ Report channel not found for {club}. Use `/set_report_channel` or `/set_report_channel_id` first.")
                 return
 
             if not alert_channel:
@@ -925,6 +937,76 @@ class AdminCommands(commands.Cog):
     bomb_status.autocomplete('club')(club_autocomplete)
     recalculate.autocomplete('club')(club_autocomplete)
     reset_month.autocomplete('club')(club_autocomplete)
+
+
+    @app_commands.command(name="check_channel", description="Diagnose bot permissions for a specific channel ID")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def check_channel(self, interaction: discord.Interaction, channel_id: str):
+        """Diagnose channel permissions and accessibility"""
+        await interaction.response.defer()
+        
+        try:
+            cid = int(channel_id.strip())
+            channel = self.bot.get_channel(cid)
+            if not channel:
+                try:
+                    channel = await self.bot.fetch_channel(cid)
+                except discord.NotFound:
+                    await interaction.followup.send(f"❌ **Channel Not Found**: ID `{cid}` does not exist or the bot has absolutely no access to it.")
+                    return
+                except discord.Forbidden:
+                    await interaction.followup.send(f"❌ **Forbidden**: The bot cannot access ID `{cid}`. It likely lacks the **View Channel** permission or is not invited to the thread.")
+                    return
+                except Exception as e:
+                    await interaction.followup.send(f"❌ **Error**: Failed to fetch channel: `{str(e)}`")
+                    return
+
+            # Check permissions
+            permissions = channel.permissions_for(interaction.guild.me)
+            
+            checks = {
+                "View Channel": permissions.view_channel,
+                "Send Messages": permissions.send_messages,
+                "Embed Links": permissions.embed_links,
+                "Read Message History": permissions.read_message_history,
+                "Attach Files": permissions.attach_files
+            }
+            
+            # Special check for threads
+            is_thread = isinstance(channel, discord.Thread)
+            thread_info = ""
+            if is_thread:
+                is_member = any(m.id == self.bot.user.id for m in getattr(channel, 'members', []))
+                thread_info = f"\n**Thread Status**: {'Invited ✅' if is_member else 'Not Invited ❌'}"
+            
+            embed = discord.Embed(
+                title=f"🔍 Channel Diagnosis: {channel.name}",
+                description=f"**Type**: {channel.type}\n**ID**: `{cid}`\n{thread_info}",
+                color=discord.Color.green() if all(checks.values()) else discord.Color.orange(),
+                timestamp=discord.utils.utcnow()
+            )
+            
+            perms_text = ""
+            for name, has in checks.items():
+                emoji = "✅" if has else "❌"
+                perms_text += f"{emoji} {name}\n"
+            
+            embed.add_field(name="Permissions", value=perms_text, inline=False)
+            
+            if not all(checks.values()):
+                embed.add_field(
+                    name="⚠️ Missing Permissions",
+                    value="Please go to Channel Settings → Permissions and ensure the bot (or its role) has the permissions marked with ❌.",
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed)
+            
+        except ValueError:
+            await interaction.followup.send("❌ Invalid ID format. Please provide a numeric ID.")
+        except Exception as e:
+            logger.error(f"Error in check_channel: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}")
 
 
 async def setup(bot):
