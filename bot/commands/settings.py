@@ -256,6 +256,12 @@ class SettingsCommands(commands.Cog):
             channel_id, message_id = await club_obj.get_monthly_info_location()
             if channel_id and message_id:
                 info_channel = self.bot.get_channel(channel_id)
+                if not info_channel:
+                    try:
+                        info_channel = await self.bot.fetch_channel(channel_id)
+                    except Exception:
+                        pass
+                
                 if info_channel:
                     embed.add_field(
                         name="📋 Monthly Info Board",

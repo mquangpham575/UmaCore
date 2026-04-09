@@ -49,6 +49,12 @@ class AdminCommands(commands.Cog):
             channel_id, message_id = await club_obj.get_monthly_info_location()
             if channel_id and message_id:
                 channel = self.bot.get_channel(channel_id)
+                if not channel:
+                    try:
+                        channel = await self.bot.fetch_channel(channel_id)
+                    except Exception:
+                        pass
+                
                 if channel:
                     try:
                         message = await channel.fetch_message(message_id)
@@ -182,6 +188,12 @@ class AdminCommands(commands.Cog):
                 return
 
             channel = self.bot.get_channel(channel_id)
+            if not channel:
+                try:
+                    channel = await self.bot.fetch_channel(channel_id)
+                except Exception:
+                    pass
+            
             if not channel:
                 await interaction.followup.send("❌ Channel not found. The board may have been deleted.")
                 return
@@ -369,7 +381,19 @@ class AdminCommands(commands.Cog):
                 return
 
             report_channel = self.bot.get_channel(club_obj.report_channel_id)
-            alert_channel = self.bot.get_channel(club_obj.alert_channel_id or club_obj.report_channel_id)
+            if not report_channel:
+                try:
+                    report_channel = await self.bot.fetch_channel(club_obj.report_channel_id)
+                except Exception:
+                    pass
+
+            alert_channel_id = club_obj.alert_channel_id or club_obj.report_channel_id
+            alert_channel = self.bot.get_channel(alert_channel_id)
+            if not alert_channel:
+                try:
+                    alert_channel = await self.bot.fetch_channel(alert_channel_id)
+                except Exception:
+                    pass
 
             if not report_channel:
                 await interaction.followup.send(f"❌ Report channel not found for {club}. Use `/set_report_channel` first.")
