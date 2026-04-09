@@ -139,12 +139,12 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# ============================================
 # Logs and Debugging
 # ============================================
 *.log
 bot.log*
 logs/
+debug/
 *.log.*
 
 # Screenshots from Selenium debugging

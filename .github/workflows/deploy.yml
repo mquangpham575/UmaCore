@@ -43,6 +43,9 @@ jobs:
             --exclude 'docs' \
             --exclude '.env' \
             --exclude 'logs' \
+            --exclude 'debug' \
+            --exclude '.ssh' \
+            --exclude '*.tar.gz' \
             --exclude '__pycache__' \
             ./ $VM_USER@$VM_HOST:/opt/umacore/
 

@@ -32,7 +32,7 @@ switch ($Action) {
         $User = "umacore"
 
         # Create a temporary tarball excluding unnecessary files
-        tar --exclude=./venv --exclude=./.git --exclude=./__pycache__ --exclude=./.env --exclude=./project.tar.gz -czf project.tar.gz .
+        tar --exclude=./venv --exclude=./.git --exclude=./__pycache__ --exclude=./.env --exclude=./debug --exclude=./.ssh --exclude=./project.tar.gz -czf project.tar.gz .
 
         # Upload and deploy
         scp -i $SSH_KEY project.tar.gz "$User@$($IP):$RemotePath/"
