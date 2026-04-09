@@ -73,7 +73,7 @@ class Database:
             scrape_time TIME NOT NULL DEFAULT '16:00',
             bomb_trigger_days INTEGER NOT NULL DEFAULT 3,
             bomb_countdown_days INTEGER NOT NULL DEFAULT 7,
-            bombs_enabled BOOLEAN DEFAULT TRUE,
+            bombs_enabled BOOLEAN DEFAULT FALSE,
             is_active BOOLEAN DEFAULT TRUE,
             report_channel_id BIGINT,
             alert_channel_id BIGINT,
@@ -127,9 +127,16 @@ class Database:
                 SELECT 1 FROM information_schema.columns
                 WHERE table_name='clubs' AND column_name='bombs_enabled'
             ) THEN
-                ALTER TABLE clubs ADD COLUMN bombs_enabled BOOLEAN DEFAULT TRUE;
+                ALTER TABLE clubs ADD COLUMN bombs_enabled BOOLEAN DEFAULT FALSE;
                 RAISE NOTICE 'Added bombs_enabled column to clubs';
             END IF;
+        END $$;
+
+        -- Migration: Set default for bombs_enabled to FALSE
+        DO $$
+        BEGIN
+            ALTER TABLE clubs ALTER COLUMN bombs_enabled SET DEFAULT FALSE;
+            RAISE NOTICE 'Set default for bombs_enabled to FALSE';
         END $$;
 
         -- Migration: Add quota_period column if it doesn't exist

@@ -41,22 +41,23 @@ class Club:
                      daily_quota: int = 1000000, quota_period: str = 'daily',
                      timezone: str = 'Europe/Amsterdam',
                      scrape_time: time = None, bomb_trigger_days: int = 3,
-                     bomb_countdown_days: int = 7) -> 'Club':
+                     bomb_countdown_days: int = 7,
+                     bombs_enabled: bool = False) -> 'Club':
         """Create a new club"""
         if scrape_time is None:
             scrape_time = time(16, 0)
 
         query = """
             INSERT INTO clubs (club_name, scrape_url, circle_id, guild_id, daily_quota, quota_period,
-                             timezone, scrape_time, bomb_trigger_days, bomb_countdown_days)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                             timezone, scrape_time, bomb_trigger_days, bomb_countdown_days, bombs_enabled)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING club_id, club_name, scrape_url, circle_id, guild_id, daily_quota, quota_period,
                      timezone, scrape_time, bomb_trigger_days, bomb_countdown_days, bombs_enabled,
                      is_active, report_channel_id, alert_channel_id, monthly_info_channel_id,
                      monthly_info_message_id, created_at, updated_at
         """
         row = await db.fetchrow(query, club_name, scrape_url, circle_id, guild_id, daily_quota, quota_period,
-                                timezone, scrape_time, bomb_trigger_days, bomb_countdown_days)
+                                timezone, scrape_time, bomb_trigger_days, bomb_countdown_days, bombs_enabled)
         logger.info(f"Created new club: {club_name} (circle_id: {circle_id}, guild_id: {guild_id})")
         return cls(**dict(row))
     

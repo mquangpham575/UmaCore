@@ -135,7 +135,7 @@ class ClubManagementCommands(commands.Cog):
                 name="Settings",
                 value=f"**Quota:** {quota_formatted} fans per {period_label}\n"
                       f"**Scrape Time:** {scrape_time} {timezone}\n"
-                      f"**Bomb Rules:** 3 days trigger, 7 days countdown",
+                      f"**Bombs:** Disabled ❌ (3 days trigger, 7 days countdown)",
                 inline=False
             )
             

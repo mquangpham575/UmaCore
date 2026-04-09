@@ -67,6 +67,6 @@ Modify settings for an existing club.
 | `timezone` | No | Update timezone |
 | `bomb_trigger_days` | No | Days behind before bomb activates (default: 3) |
 | `bomb_countdown_days` | No | Days to get back on track (default: 7) |
-| `bombs_enabled` | No | Enable or disable bomb system (`true`/`false`) |
+| `bombs_enabled` | No | Enable or disable bomb system (`true`/`false`) (default: false) |
 
 Only include the parameters you want to change.

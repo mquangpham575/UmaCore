@@ -50,7 +50,7 @@ Configured per club via `/edit_club`:
 |---|---|---|
 | `bomb_trigger_days` | 3 | Days behind before bomb activates |
 | `bomb_countdown_days` | 7 | Days to recover before alert |
-| `bombs_enabled` | true | Toggle bomb system on/off |
+| `bombs_enabled` | false | Toggle bomb system on/off |
 
 Use `/bomb_status` to see all active bombs for a club.
 
