@@ -56,6 +56,7 @@ _ _
 *   **/recalculate** — Bug fix: Force-recalculate all days-behind counts from history.
 
 **🔄 System & Maintenance**
+*   **/transfer_club** — Pull a club from another server (or legacy data) to this server.
 *   **/reset_month** — Manually clear all history (only use if auto-reset fails).
 *   **/sync_guild** — Force Discord to refresh the command list in this server.
 *   **/check_channel** — Diagnose bot permissions to see why reports aren't sending.

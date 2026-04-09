@@ -165,7 +165,7 @@ class Club:
         """Update club settings"""
         valid_fields = {'scrape_url', 'circle_id', 'daily_quota', 'quota_period', 'timezone',
                        'scrape_time', 'bomb_trigger_days', 'bomb_countdown_days', 'bombs_enabled',
-                       'report_channel_id', 'alert_channel_id'}
+                       'report_channel_id', 'alert_channel_id', 'guild_id'}
 
         updates = {k: v for k, v in kwargs.items() if k in valid_fields}
         if not updates:

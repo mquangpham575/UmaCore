@@ -10,6 +10,7 @@ import pytz
 import asyncio
 
 from models import Club
+from bot.decorators import is_admin_or_authorized
 
 from config.settings import USE_UMAMOE_API
 
@@ -38,8 +39,8 @@ class ClubManagementCommands(commands.Cog):
             logger.error(f"Error in club autocomplete: {e}")
             return []
     
-    @app_commands.command(name="add_club", description="Register a new club to track (Admin only)")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="add_club", description="Register a new club to track (Staff only)")
+    @is_admin_or_authorized()
     @app_commands.choices(quota_period=[
         app_commands.Choice(name="Daily", value="daily"),
         app_commands.Choice(name="Weekly", value="weekly"),
@@ -158,8 +159,8 @@ class ClubManagementCommands(commands.Cog):
             logger.error(f"Error in add_club: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
-    @app_commands.command(name="remove_club", description="Permanently delete a club (Admin only)")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="remove_club", description="Permanently delete a club (Staff only)")
+    @is_admin_or_authorized()
     async def remove_club(self, interaction: discord.Interaction, club: str):
         """Permanently delete a club and all associated data"""
         await interaction.response.defer()
@@ -251,8 +252,8 @@ class ClubManagementCommands(commands.Cog):
             logger.error(f"Error in remove_club: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
-    @app_commands.command(name="activate_club", description="Reactivate a club (Admin only)")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="activate_club", description="Reactivate a club (Staff only)")
+    @is_admin_or_authorized()
     async def activate_club(self, interaction: discord.Interaction, club: str):
         """Reactivate a deactivated club"""
         await interaction.response.defer()
@@ -356,8 +357,8 @@ class ClubManagementCommands(commands.Cog):
             logger.error(f"Error in list_clubs: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
-    @app_commands.command(name="edit_club", description="Edit club settings (Admin only)")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="edit_club", description="Edit club settings (Staff only)")
+    @is_admin_or_authorized()
     @app_commands.choices(quota_period=[
         app_commands.Choice(name="Daily", value="daily"),
         app_commands.Choice(name="Weekly", value="weekly"),
@@ -508,10 +509,75 @@ class ClubManagementCommands(commands.Cog):
             logger.error(f"Error in edit_club: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
+    @app_commands.command(name="transfer_club", description="Transfer a club from another server to this server")
+    @is_admin_or_authorized()
+    async def transfer_club(self, interaction: discord.Interaction, club: str):
+        """Move a club from another guild (or from pre-migration) to the current guild"""
+        await interaction.response.defer()
+        
+        try:
+            club_obj = await Club.get_by_name(club)
+            
+            if not club_obj:
+                await interaction.followup.send(f"❌ Club '{club}' not found in the global database.")
+                return
+            
+            if club_obj.guild_id == interaction.guild_id:
+                await interaction.followup.send(f"ℹ️ Club '{club}' is already registered in this server.")
+                return
+
+            old_guild_id = club_obj.guild_id
+            await club_obj.update_settings(guild_id=interaction.guild_id)
+            
+            embed = discord.Embed(
+                title="✅ Club Transferred",
+                description=f"Successfully transferred **{club}** to this server!",
+                color=discord.Color.green(),
+                timestamp=discord.utils.utcnow()
+            )
+            
+            embed.add_field(
+                name="Information",
+                value=f"**Old Server ID:** `{old_guild_id or 'Global/Pre-migration'}`\n"
+                      f"**New Server ID:** `{interaction.guild_id}`",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="⚠️ Next Steps",
+                value="Registration channels (reports, alerts) were NOT moved. You MUST set new ones:\n\n"
+                      f"1. `/set_report_channel club:{club}`\n"
+                      f"2. `/set_alert_channel club:{club}`",
+                inline=False
+            )
+            
+            embed.set_footer(text=f"Transferred by {interaction.user}")
+            
+            await interaction.followup.send(embed=embed)
+            logger.warning(f"Club '{club}' transferred from guild {old_guild_id} to {interaction.guild_id} by {interaction.user}")
+            
+        except Exception as e:
+            logger.error(f"Error in transfer_club: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error during transfer: {str(e)}")
+
     # Autocomplete for club parameter
+    async def global_club_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete that shows ALL active clubs globally"""
+        try:
+            club_names = await Club.get_all_names()
+            return [
+                app_commands.Choice(name=name, value=name)
+                for name in club_names
+                if current.lower() in name.lower()
+            ][:25]
+        except Exception as e:
+            logger.error(f"Error in global club autocomplete: {e}")
+            return []
+
     remove_club.autocomplete('club')(club_autocomplete)
     activate_club.autocomplete('club')(club_autocomplete)
     edit_club.autocomplete('club')(club_autocomplete)
+    transfer_club.autocomplete('club')(global_club_autocomplete)
 
 
 async def setup(bot):
