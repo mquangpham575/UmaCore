@@ -2,11 +2,13 @@
 Discord bot commands
 """
 import discord
-from discord import app_commands
+from discord import app_commands, ChannelType
 from discord.ext import commands
 from datetime import datetime, date
 import logging
 import pytz
+import typing
+from typing import Annotated
 
 from config.settings import TIMEZONE, SCRAPE_URL
 from scrapers import ChronoGenesisScraper
@@ -29,9 +31,13 @@ class QuotaCommands(commands.Cog):
     
     @app_commands.command(name="set_report_channel", description="Set the channel for daily reports")
     @app_commands.checks.has_permissions(administrator=True)
-    async def set_report_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+    async def set_report_channel(self, interaction: discord.Interaction, channel: discord.abc.GuildChannel):
         """Set the channel where daily reports will be posted"""
         await interaction.response.defer()
+        
+        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            await interaction.followup.send("❌ Please select a **Text Channel** or a **Thread**.")
+            return
         
         try:
             await BotSettings.set_report_channel_id(channel.id)
@@ -52,9 +58,13 @@ class QuotaCommands(commands.Cog):
     
     @app_commands.command(name="set_alert_channel", description="Set the channel for alerts (bombs, kicks)")
     @app_commands.checks.has_permissions(administrator=True)
-    async def set_alert_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+    async def set_alert_channel(self, interaction: discord.Interaction, channel: discord.abc.GuildChannel):
         """Set the channel where alerts (bomb activations, kick warnings) will be posted"""
         await interaction.response.defer()
+        
+        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            await interaction.followup.send("❌ Please select a **Text Channel** or a **Thread**.")
+            return
         
         try:
             await BotSettings.set_alert_channel_id(channel.id)
@@ -92,6 +102,12 @@ class QuotaCommands(commands.Cog):
             # Report channel
             if report_channel_id:
                 report_channel = self.bot.get_channel(report_channel_id)
+                if not report_channel:
+                    try:
+                        report_channel = await self.bot.fetch_channel(report_channel_id)
+                    except Exception:
+                        pass
+                
                 if report_channel:
                     embed.add_field(
                         name="📊 Daily Reports Channel",
@@ -101,13 +117,18 @@ class QuotaCommands(commands.Cog):
                 else:
                     embed.add_field(
                         name="📊 Daily Reports Channel",
-                        value=f"⚠️ Channel not found (ID: {report_channel_id})",
+                        value=f"⚠️ Channel/Thread not found (ID: {report_channel_id})",
                         inline=False
                     )
             else:
                 from config.settings import CHANNEL_ID
                 if CHANNEL_ID:
                     channel = self.bot.get_channel(CHANNEL_ID)
+                    if not channel:
+                        try:
+                            channel = await self.bot.fetch_channel(CHANNEL_ID)
+                        except Exception:
+                            pass
                     embed.add_field(
                         name="📊 Daily Reports Channel",
                         value=f"Using .env fallback: {channel.mention if channel else f'ID: {CHANNEL_ID}'}",
@@ -123,6 +144,12 @@ class QuotaCommands(commands.Cog):
             # Alert channel
             if alert_channel_id:
                 alert_channel = self.bot.get_channel(alert_channel_id)
+                if not alert_channel:
+                    try:
+                        alert_channel = await self.bot.fetch_channel(alert_channel_id)
+                    except Exception:
+                        pass
+                
                 if alert_channel:
                     embed.add_field(
                         name="🚨 Alerts Channel",
@@ -132,7 +159,7 @@ class QuotaCommands(commands.Cog):
                 else:
                     embed.add_field(
                         name="🚨 Alerts Channel",
-                        value=f"⚠️ Channel not found (ID: {alert_channel_id})",
+                        value=f"⚠️ Channel/Thread not found (ID: {alert_channel_id})",
                         inline=False
                     )
             else:
@@ -309,7 +336,18 @@ class QuotaCommands(commands.Cog):
                 alert_channel_id = report_channel_id
             
             report_channel = self.bot.get_channel(report_channel_id)
+            if not report_channel:
+                try:
+                    report_channel = await self.bot.fetch_channel(report_channel_id)
+                except Exception:
+                    pass
+            
             alert_channel = self.bot.get_channel(alert_channel_id)
+            if not alert_channel:
+                try:
+                    alert_channel = await self.bot.fetch_channel(alert_channel_id)
+                except Exception:
+                    pass
             
             if not report_channel:
                 await interaction.followup.send(f"❌ Report channel not found. Use `/set_report_channel` first.")

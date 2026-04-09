@@ -15,6 +15,7 @@ from scrapers import ChronoGenesisScraper, UmaMoeAPIScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, MonthlyInfoService
 from models import Member, QuotaRequirement, Club, ClubRankHistory
 from config.settings import USE_UMAMOE_API
+import typing
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,20 @@ class AdminCommands(commands.Cog):
         except Exception as e:
             logger.error(f"Error in update_monthly_info: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
+
+    @app_commands.command(name="sync_guild", description="Force-sync slash commands to this server (instant update)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def sync_guild(self, interaction: discord.Interaction):
+        """Manually sync commands to the current guild for instant updates"""
+        await interaction.response.defer(ephemeral=True)
+        try:
+            self.bot.tree.copy_global_to(guild=interaction.guild)
+            synced = await self.bot.tree.sync(guild=interaction.guild)
+            await interaction.followup.send(f"✅ Successfully synced {len(synced)} commands to this server! Please restart your Discord (Ctrl+R) if changes don't show up immediately.", ephemeral=True)
+            logger.info(f"Manual guild sync performed in {interaction.guild.name} by {interaction.user}")
+        except Exception as e:
+            logger.error(f"Error syncing guild commands: {e}")
+            await interaction.followup.send(f"❌ Sync failed: {str(e)}", ephemeral=True)
 
     @app_commands.command(name="quota_history", description="View quota changes this month")
     @app_commands.checks.has_permissions(administrator=True)

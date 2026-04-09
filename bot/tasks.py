@@ -41,16 +41,14 @@ class BotTasks:
         self.hourly_check.cancel()
         logger.info("Scheduled tasks stopped")
 
-    @tasks.loop(hours=1)
+    @tasks.loop(minutes=1)
     async def hourly_check(self):
-        """Check every hour if it's time to run any club's daily report"""
-        logger.info("=" * 80)
-        logger.info("Hourly check - scanning all clubs...")
-        logger.info("=" * 80)
+        """Check every minute if it's time to run any club's daily report"""
+        logger.debug("Minute check - scanning all clubs for scheduled reports...")
 
         try:
             clubs = await Club.get_all_active()
-            logger.info(f"Found {len(clubs)} active club(s)")
+            # No logging here to keep logs clean every minute
 
             for club in clubs:
                 try:
@@ -97,7 +95,19 @@ class BotTasks:
         try:
             async with ScrapeContext(club.club_id, f"tasks_{club.club_name}"):
                 report_channel = self.bot.get_channel(club.report_channel_id)
-                alert_channel = self.bot.get_channel(club.alert_channel_id or club.report_channel_id)
+                if not report_channel:
+                    try:
+                        report_channel = await self.bot.fetch_channel(club.report_channel_id)
+                    except Exception as e:
+                        logger.error(f"Could not fetch report channel {club.report_channel_id}: {e}")
+                
+                alert_channel_id = club.alert_channel_id or club.report_channel_id
+                alert_channel = self.bot.get_channel(alert_channel_id)
+                if not alert_channel:
+                    try:
+                        alert_channel = await self.bot.fetch_channel(alert_channel_id)
+                    except Exception as e:
+                        logger.error(f"Could not fetch alert channel {alert_channel_id}: {e}")
 
                 if not report_channel:
                     logger.error(f"Report channel {club.report_channel_id} not found for {club.club_name}")
@@ -379,6 +389,12 @@ class BotTasks:
 
             try:
                 report_channel = self.bot.get_channel(club.report_channel_id)
+                if not report_channel:
+                    try:
+                        report_channel = await self.bot.fetch_channel(club.report_channel_id)
+                    except Exception:
+                        pass
+                
                 if report_channel:
                     error_embed = self.report_generator.create_error_report(
                         club.club_name,

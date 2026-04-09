@@ -2,11 +2,13 @@
 Channel and bot settings commands
 """
 import discord
-from discord import app_commands
+from discord import app_commands, ChannelType
 from discord.ext import commands
 from datetime import datetime
 import logging
 import pytz
+import typing
+from typing import Annotated
 
 from models import Club
 from services import MonthlyInfoService
@@ -36,9 +38,13 @@ class SettingsCommands(commands.Cog):
     
     @app_commands.command(name="set_report_channel", description="Set the channel for daily reports")
     @app_commands.checks.has_permissions(administrator=True)
-    async def set_report_channel(self, interaction: discord.Interaction, channel: discord.TextChannel, club: str):
+    async def set_report_channel(self, interaction: discord.Interaction, channel: discord.abc.GuildChannel, club: str):
         """Set the channel where daily reports will be posted"""
         await interaction.response.defer()
+        
+        if not hasattr(channel, 'send'):
+            await interaction.followup.send("❌ Please select a channel or thread that supports messages.")
+            return
         
         try:
             club_obj = await Club.get_by_name(club)
@@ -59,18 +65,55 @@ class SettingsCommands(commands.Cog):
                 timestamp=discord.utils.utcnow()
             )
             
-            await interaction.followup.send(embed=embed)
-            logger.info(f"Report channel for {club} set to {channel.name} ({channel.id}) by {interaction.user}")
+            await interaction.followup.send(f"✅ Set daily reports for **{club}** to {channel.mention}")
+            logger.info(f"Report channel set to {channel.id} for {club} by {interaction.user}")
             
         except Exception as e:
             logger.error(f"Error in set_report_channel: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
+
+    @app_commands.command(name="set_report_channel_id", description="Set report channel using a raw ID (useful for threads)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_report_channel_id(self, interaction: discord.Interaction, channel_id: str, club: str):
+        """Set the report channel via raw ID (bypass the picker)"""
+        await interaction.response.defer()
+        
+        try:
+            cid = int(channel_id.strip())
+            club_obj = await Club.get_by_name(club)
+            if not club_obj:
+                await interaction.followup.send(f"❌ Club '{club}' not found")
+                return
+
+            # Verification
+            channel = self.bot.get_channel(cid)
+            if not channel:
+                try:
+                    channel = await self.bot.fetch_channel(cid)
+                except Exception:
+                    pass
+            
+            await club_obj.set_channels(report_channel_id=cid)
+            
+            mention = channel.mention if channel else f"ID: {cid}"
+            await interaction.followup.send(f"✅ Set daily reports for **{club}** to {mention}")
+            logger.info(f"Report channel ID set to {cid} for {club} by {interaction.user}")
+            
+        except ValueError:
+            await interaction.followup.send("❌ Invalid ID format. Please provide a numeric ID.")
+        except Exception as e:
+            logger.error(f"Error in set_report_channel_id: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}")
     
     @app_commands.command(name="set_alert_channel", description="Set the channel for alerts (bombs, kicks)")
     @app_commands.checks.has_permissions(administrator=True)
-    async def set_alert_channel(self, interaction: discord.Interaction, channel: discord.TextChannel, club: str):
+    async def set_alert_channel(self, interaction: discord.Interaction, channel: discord.abc.GuildChannel, club: str):
         """Set the channel where alerts will be posted"""
         await interaction.response.defer()
+        
+        if not hasattr(channel, 'send'):
+            await interaction.followup.send("❌ Please select a channel or thread that supports messages.")
+            return
         
         try:
             club_obj = await Club.get_by_name(club)
@@ -91,11 +134,44 @@ class SettingsCommands(commands.Cog):
                 timestamp=discord.utils.utcnow()
             )
             
-            await interaction.followup.send(embed=embed)
-            logger.info(f"Alert channel for {club} set to {channel.name} ({channel.id}) by {interaction.user}")
+            await interaction.followup.send(f"✅ Set alerts for **{club}** to {channel.mention}")
+            logger.info(f"Alert channel set to {channel.id} for {club} by {interaction.user}")
             
         except Exception as e:
             logger.error(f"Error in set_alert_channel: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}")
+
+    @app_commands.command(name="set_alert_channel_id", description="Set alert channel using a raw ID (useful for threads)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_alert_channel_id(self, interaction: discord.Interaction, channel_id: str, club: str):
+        """Set the alert channel via raw ID (bypass the picker)"""
+        await interaction.response.defer()
+        
+        try:
+            cid = int(channel_id.strip())
+            club_obj = await Club.get_by_name(club)
+            if not club_obj:
+                await interaction.followup.send(f"❌ Club '{club}' not found")
+                return
+
+            # Verification
+            channel = self.bot.get_channel(cid)
+            if not channel:
+                try:
+                    channel = await self.bot.fetch_channel(cid)
+                except Exception:
+                    pass
+            
+            await club_obj.set_channels(alert_channel_id=cid)
+            
+            mention = channel.mention if channel else f"ID: {cid}"
+            await interaction.followup.send(f"✅ Set alerts for **{club}** to {mention}")
+            logger.info(f"Alert channel ID set to {cid} for {club} by {interaction.user}")
+            
+        except ValueError:
+            await interaction.followup.send("❌ Invalid ID format. Please provide a numeric ID.")
+        except Exception as e:
+            logger.error(f"Error in set_alert_channel_id: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
     @app_commands.command(name="channel_settings", description="View current channel configuration")
@@ -123,6 +199,12 @@ class SettingsCommands(commands.Cog):
             # Report channel
             if club_obj.report_channel_id:
                 report_channel = self.bot.get_channel(club_obj.report_channel_id)
+                if not report_channel:
+                    try:
+                        report_channel = await self.bot.fetch_channel(club_obj.report_channel_id)
+                    except Exception:
+                        pass
+                
                 if report_channel:
                     embed.add_field(
                         name="📊 Daily Reports Channel",
@@ -132,7 +214,7 @@ class SettingsCommands(commands.Cog):
                 else:
                     embed.add_field(
                         name="📊 Daily Reports Channel",
-                        value=f"⚠️ Channel not found (ID: {club_obj.report_channel_id})",
+                        value=f"⚠️ Channel/Thread not found (ID: {club_obj.report_channel_id})",
                         inline=False
                     )
             else:
@@ -145,6 +227,12 @@ class SettingsCommands(commands.Cog):
             # Alert channel
             if club_obj.alert_channel_id:
                 alert_channel = self.bot.get_channel(club_obj.alert_channel_id)
+                if not alert_channel:
+                    try:
+                        alert_channel = await self.bot.fetch_channel(club_obj.alert_channel_id)
+                    except Exception:
+                        pass
+                
                 if alert_channel:
                     embed.add_field(
                         name="🚨 Alerts Channel",
@@ -154,7 +242,7 @@ class SettingsCommands(commands.Cog):
                 else:
                     embed.add_field(
                         name="🚨 Alerts Channel",
-                        value=f"⚠️ Channel not found (ID: {club_obj.alert_channel_id})",
+                        value=f"⚠️ Channel/Thread not found (ID: {club_obj.alert_channel_id})",
                         inline=False
                     )
             else:
@@ -197,9 +285,13 @@ class SettingsCommands(commands.Cog):
     
     @app_commands.command(name="post_monthly_info", description="Post the monthly info board (auto-updates)")
     @app_commands.checks.has_permissions(administrator=True)
-    async def post_monthly_info(self, interaction: discord.Interaction, club: str, channel: discord.TextChannel = None):
+    async def post_monthly_info(self, interaction: discord.Interaction, club: str, channel: discord.abc.GuildChannel = None):
         """Post or update the monthly information board"""
         await interaction.response.defer()
+        
+        if channel and not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            await interaction.followup.send("❌ Please select a **Text Channel** or a **Thread**.")
+            return
         
         try:
             club_obj = await Club.get_by_name(club)
@@ -256,6 +348,8 @@ class SettingsCommands(commands.Cog):
     set_alert_channel.autocomplete('club')(club_autocomplete)
     channel_settings.autocomplete('club')(club_autocomplete)
     post_monthly_info.autocomplete('club')(club_autocomplete)
+    set_report_channel_id.autocomplete('club')(club_autocomplete)
+    set_alert_channel_id.autocomplete('club')(club_autocomplete)
 
 
 async def setup(bot):
