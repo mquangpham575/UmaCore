@@ -427,14 +427,12 @@ class MemberCommands(commands.Cog):
         # Calculate streak and get history
         history_records = await QuotaHistory.get_last_n_days(member.member_id, 100)
         
-        # Use calendar days elapsed for more accurate averages (accounts for gaps)
+        # Use calendar days in period for accurate averages (matches quota period)
+        from services.quota_calculator import QuotaCalculator
+        days_in_period = QuotaCalculator.calculate_days_active_in_month(member.join_date, latest_history.date)
         days_tracked = len(history_records) if history_records else 1
-        if history_records:
-            days_elapsed = (history_records[0].date - history_records[-1].date).days + 1
-        else:
-            days_elapsed = 1
             
-        avg_daily = latest_history.cumulative_fans / max(1, days_elapsed)
+        avg_daily = latest_history.cumulative_fans / max(1, days_in_period)
         
         # Calculate streak (consecutive days on track)
         streak_days = 0
@@ -487,7 +485,7 @@ class MemberCommands(commands.Cog):
         
         embed.add_field(
             name="📊 Statistics",
-            value=f"**Days Tracked:** {days_tracked} ({days_elapsed}d elapsed)\n"
+            value=f"**Days Tracked:** {days_tracked} ({days_in_period}d period)\n"
                   f"**Avg Daily:** {avg_formatted}/day\n"
                   f"**Best Day:** +{best_formatted}\n"
                   f"**Streak:** {streak_days} day{'s' if streak_days != 1 else ''} {streak_emoji}",
