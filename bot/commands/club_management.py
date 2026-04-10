@@ -9,7 +9,7 @@ import logging
 import pytz
 import asyncio
 
-from models import Club
+from models import Club, Member
 from bot.decorators import is_admin_or_authorized
 
 from config.settings import USE_UMAMOE_API
@@ -605,6 +605,61 @@ class ClubManagementCommands(commands.Cog):
             logger.error(f"Error in transfer_club: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error during transfer: {str(e)}")
 
+    @app_commands.command(name="list_members", description="List all active members of a club from the database")
+    async def list_members(self, interaction: discord.Interaction, club: str):
+        """List active members from the database without scraping"""
+        await interaction.response.defer()
+        
+        try:
+            club_obj = await Club.get_by_name(club)
+            if not club_obj:
+                await interaction.followup.send(f"❌ Club '{club}' not found")
+                return
+            
+            if not club_obj.belongs_to_guild(interaction.guild_id):
+                await interaction.followup.send(f"❌ Club '{club}' is not registered in this server.")
+                return
+            
+            members = await Member.get_all_active(club_obj.club_id)
+            
+            if not members:
+                await interaction.followup.send(f"ℹ️ No active members found for **{club}** in the database.")
+                return
+            
+            # Group members into chunks for multiple embeds if needed (Discord has limits)
+            chunk_size = 50
+            member_chunks = [members[i:i + chunk_size] for i in range(0, len(members), chunk_size)]
+            
+            for idx, chunk in enumerate(member_chunks):
+                embed = discord.Embed(
+                    title=f"👥 Members: {club}",
+                    description=f"Showing active members from database (Total: {len(members)})",
+                    color=discord.Color.blue(),
+                    timestamp=discord.utils.utcnow()
+                )
+                
+                member_list = []
+                for m in chunk:
+                    trainer_id = f" (`{m.trainer_id}`)" if m.trainer_id else ""
+                    member_list.append(f"• **{m.trainer_name}**{trainer_id}")
+                
+                # Split member list into columns or just joined text
+                embed.description += "\n\n" + "\n".join(member_list)
+                
+                if len(member_chunks) > 1:
+                    embed.set_footer(text=f"Page {idx + 1}/{len(member_chunks)}")
+                
+                if idx == 0:
+                    await interaction.followup.send(embed=embed)
+                else:
+                    await interaction.followup.send(embed=embed)
+                    
+            logger.info(f"Listed {len(members)} members for club {club} for user {interaction.user}")
+            
+        except Exception as e:
+            logger.error(f"Error in list_members: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}")
+
     # Autocomplete for club parameter
     async def global_club_autocomplete(self, interaction: discord.Interaction, current: str):
         """Autocomplete that shows ALL active clubs globally"""
@@ -624,6 +679,7 @@ class ClubManagementCommands(commands.Cog):
     deactivate_club.autocomplete('club')(club_autocomplete)
     edit_club.autocomplete('club')(club_autocomplete)
     transfer_club.autocomplete('club')(global_club_autocomplete)
+    list_members.autocomplete('club')(club_autocomplete)
 
 
 async def setup(bot):
