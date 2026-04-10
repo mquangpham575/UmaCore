@@ -51,11 +51,11 @@ class Member:
     
     @classmethod
     async def get_by_name(cls, club_id: UUID, trainer_name: str) -> Optional['Member']:
-        """Get member by trainer name within a club"""
+        """Get member by trainer name within a club (case-insensitive)"""
         query = """
             SELECT member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen
             FROM members
-            WHERE club_id = $1 AND trainer_name = $2
+            WHERE club_id = $1 AND LOWER(trainer_name) = LOWER($2)
         """
         row = await db.fetchrow(query, club_id, trainer_name)
         if row:
