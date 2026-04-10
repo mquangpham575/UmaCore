@@ -23,7 +23,7 @@ USE_UMAMOE_API = os.getenv("USE_UMAMOE_API", "false").lower() == "true"
 
 # Timezone Configuration
 TIMEZONE = "UTC"
-DAILY_REPORT_TIME = "10:20"
+DAILY_REPORT_TIME = "10:30"
 
 # Quota Rules
 DAILY_QUOTA = 1_000_000

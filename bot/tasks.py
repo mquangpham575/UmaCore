@@ -33,6 +33,9 @@ class BotTasks:
 
     def start_tasks(self):
         """Start all scheduled tasks"""
+        # Clear existing locks on startup to prevent deadlocks from previous crashes
+        asyncio.create_task(ScrapeLockManager.force_release_all())
+        
         self.hourly_check.start()
         logger.info("Scheduled tasks started (checking all clubs hourly)")
 
@@ -88,6 +91,12 @@ class BotTasks:
 
     async def daily_check_for_club(self, club: Club):
         """Daily quota check and report generation for a specific club"""
+        # Add random jitter to spread out concurrent club scrapes (0-90 seconds)
+        import random
+        jitter = random.randint(0, 90)
+        logger.info(f"Adding {jitter}s jitter to spread out {club.club_name} scrape task")
+        await asyncio.sleep(jitter)
+        
         logger.info("=" * 80)
         logger.info(f"Starting daily check for {club.club_name}")
         logger.info("=" * 80)
