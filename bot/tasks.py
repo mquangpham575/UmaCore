@@ -29,8 +29,8 @@ class BotTasks:
         # Track last run per club per day (club_id_YYYY-MM-DD -> True)
         self.last_runs = {}
         
-        # Limit parallel browser instances to prevent CPU/RAM crashes (max 3 at once)
-        self.scrape_semaphore = asyncio.Semaphore(3)
+        # Limit parallel browser instances to prevent CPU/RAM crashes (max 5 at once)
+        self.scrape_semaphore = asyncio.Semaphore(5)
 
         logger.info("Multi-club tasks configured - will check all clubs hourly")
 
@@ -94,11 +94,12 @@ class BotTasks:
 
     async def daily_check_for_club(self, club: Club):
         """Daily quota check and report generation for a specific club"""
+        logger.info(f"⏳ {club.club_name} queued (waiting for browser slot)...")
         # Limit parallel browser instances using a semaphore
         async with self.scrape_semaphore:
-            # Add random jitter to spread out concurrent club scrapes (0-90 seconds)
+            # Add random jitter to spread out concurrent club scrapes (0-10 seconds)
             import random
-            jitter = random.randint(0, 90)
+            jitter = random.randint(0, 10)
             logger.info(f"Adding {jitter}s jitter to spread out {club.club_name} scrape task")
             await asyncio.sleep(jitter)
             
