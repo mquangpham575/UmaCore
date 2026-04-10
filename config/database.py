@@ -368,10 +368,13 @@ class Database:
         CREATE INDEX IF NOT EXISTS idx_user_links_member_id
             ON user_links(member_id);
         
-        -- Unique constraint for trainer_id per club
+        -- Unique INDEX for trainer_id per club
         DROP INDEX IF EXISTS members_trainer_id_key;
         CREATE UNIQUE INDEX IF NOT EXISTS members_trainer_id_club_unique 
             ON members(trainer_id, club_id) WHERE trainer_id IS NOT NULL;
+
+        -- Migration: Update all existing clubs to 11:00 UTC
+        UPDATE clubs SET scrape_time = '11:00:00', timezone = 'UTC' WHERE scrape_time = '16:00:00' OR timezone = 'Europe/Amsterdam';
         """
         
         try:

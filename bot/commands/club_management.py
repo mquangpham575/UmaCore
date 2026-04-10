@@ -51,8 +51,8 @@ class ClubManagementCommands(commands.Cog):
                        circle_id: str,
                        daily_quota: int,
                        quota_period: app_commands.Choice[str] = None,
-                       timezone: str = "Europe/Amsterdam",
-                       scrape_time: str = "16:00"):
+                       timezone: str = "UTC",
+                       scrape_time: str = "11:00"):
         """Register a new club"""
         await interaction.response.defer()
         

@@ -22,8 +22,8 @@ SCRAPE_RETRY_DELAY = 1  # seconds
 USE_UMAMOE_API = os.getenv("USE_UMAMOE_API", "false").lower() == "true"
 
 # Timezone Configuration
-TIMEZONE = "Europe/Amsterdam"  # CEST
-DAILY_REPORT_TIME = "16:00"
+TIMEZONE = "UTC"
+DAILY_REPORT_TIME = "11:00"
 
 # Quota Rules
 DAILY_QUOTA = 1_000_000
