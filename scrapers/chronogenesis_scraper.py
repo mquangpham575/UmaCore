@@ -79,8 +79,8 @@ class ChronoGenesisScraper(BaseScraper):
                 "--disable-dev-shm-usage",
                 "--no-sandbox",
             ],
-            browser_connection_timeout=5.0,
-            browser_connection_max_tries=30,
+            browser_connection_timeout=20.0,
+            browser_connection_max_tries=40,
         )
 
         best_response = None
