@@ -372,9 +372,6 @@ class Database:
         DROP INDEX IF EXISTS members_trainer_id_key;
         CREATE UNIQUE INDEX IF NOT EXISTS members_trainer_id_club_unique 
             ON members(trainer_id, club_id) WHERE trainer_id IS NOT NULL;
-
-        -- Migration: Update all existing clubs to 10:50 UTC
-        UPDATE clubs SET scrape_time = '10:50:00', timezone = 'UTC' WHERE scrape_time IN ('16:00:00', '11:00:00', '10:10:00', '10:15:00', '10:20:00', '10:30:00') OR timezone = 'Europe/Amsterdam';
         """
         
         try:
