@@ -31,6 +31,19 @@ class AdminCommands(commands.Cog):
         self.report_generator = ReportGenerator()
         self.monthly_info_service = MonthlyInfoService()
 
+    @app_commands.command(name="clear_locks", description="Force release all scraping locks (Staff only)")
+    @is_admin_or_authorized()
+    async def clear_locks(self, interaction: discord.Interaction):
+        """Force release all scraping locks"""
+        from services.scrape_lock_manager import ScrapeLockManager
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await ScrapeLockManager.force_release_all()
+            await interaction.followup.send("✅ All scraping locks have been force-released.", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in clear_locks command: {e}")
+            await interaction.followup.send(f"❌ Error releasing locks: {e}", ephemeral=True)
+
     async def club_autocomplete(self, interaction: discord.Interaction, current: str):
         """Autocomplete for club names visible in this guild"""
         try:
