@@ -147,6 +147,9 @@ Selenium-based scraper for ChronoGenesis.net. Used when `USE_UMAMOE_API=false`.
 - `/unlink` - Remove your trainer link
 - `/my_status` - View your own quota status
 - `/member_status` - View any member's quota status
+- `/check_club` - View current club status report from database
+- `/list_clubs` - View all registered clubs
+- `/list_members` - List active members of a club
 - `/notification_settings` - Manage DM notification preferences
 
 ## How It Works

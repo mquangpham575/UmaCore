@@ -40,6 +40,21 @@ class ClubRankHistory:
         return cls(**dict(row))
 
     @classmethod
+    async def get_latest(cls, club_id: UUID) -> Optional['ClubRankHistory']:
+        """Return the most recent rank record for the given club."""
+        query = """
+            SELECT id, club_id, date, club_rank, monthly_rank, scraped_at
+            FROM club_rank_history
+            WHERE club_id = $1
+            ORDER BY date DESC
+            LIMIT 1
+        """
+        row = await db.fetchrow(query, club_id)
+        if row:
+            return cls(**dict(row))
+        return None
+
+    @classmethod
     async def get_previous(cls, club_id: UUID, before_date: date) -> Optional['ClubRankHistory']:
         """Return the most recent rank record strictly before before_date."""
         query = """

@@ -13,6 +13,7 @@ To track your individual progress and receive personal notifications, you must l
 
 *   **/my_status** — View your own fan progress, surplus/deficit, and bomb status.
 *   **/member_status** — View the status of any other member in the club.
+*   **/check_club** — View the current full club status report without triggering a new scrape.
 *   **/progress_chart** — Generate a visual chart showing everyone's progress this month.
 *   **/previous_month** — See a full recap of last month's final results.
 *   **/notification_settings** — Customize if you want DMs for bombs or falling behind.

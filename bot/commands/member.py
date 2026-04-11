@@ -4,10 +4,12 @@ Member status and user linking commands
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import date as date_class
+from datetime import date as date_class, datetime
 import logging
 
-from models import Member, QuotaHistory, Bomb, UserLink, Club, QuotaRequirement
+from models import Member, QuotaHistory, Bomb, UserLink, Club, QuotaRequirement, ClubRankHistory
+from services import QuotaCalculator, BombManager, ReportGenerator
+import pytz
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,9 @@ class MemberCommands(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
+        self.quota_calculator = QuotaCalculator()
+        self.bomb_manager = BombManager()
+        self.report_generator = ReportGenerator()
     
     async def club_autocomplete(self, interaction: discord.Interaction, current: str):
         """Autocomplete for club names visible in this guild"""
@@ -70,7 +75,7 @@ class MemberCommands(commands.Cog):
                     logger.info(f"Unlinked user {interaction.user.id} from {existing_member.trainer_name}")
             
             # Create link
-            user_link = await UserLink.create(
+            await UserLink.create(
                 discord_user_id=interaction.user.id,
                 member_id=member.member_id,
                 notify_on_bombs=True,
@@ -269,6 +274,67 @@ class MemberCommands(commands.Cog):
             logger.error(f"Error in member_status: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
+    @app_commands.command(name="check_club", description="Show the current club status report from database (all members)")
+    async def check_club(self, interaction: discord.Interaction, club: str):
+        """Show full status report for a club without scraping"""
+        await interaction.response.defer()
+
+        try:
+            club_obj = await Club.get_by_name(club)
+            if not club_obj:
+                await interaction.followup.send(f"❌ Club '{club}' not found")
+                return
+
+            if not club_obj.belongs_to_guild(interaction.guild_id):
+                await interaction.followup.send(f"❌ Club '{club}' is not registered in this server.")
+                return
+
+            club_tz = pytz.timezone(club_obj.timezone)
+            current_date = datetime.now(club_tz).date()
+
+            # Process cached data from DB
+            status_summary = await self.quota_calculator.get_member_status_summary(
+                club_obj.club_id, current_date, quota_period=club_obj.quota_period
+            )
+
+            # Only fetch bomb data if bombs are enabled
+            if club_obj.bombs_enabled:
+                bombs_data = await self.bomb_manager.get_active_bombs_with_members(club_obj.club_id)
+            else:
+                bombs_data = []
+
+            # Try to get the latest rank data from DB if available
+            rank_data = None
+            latest_rank_record = await ClubRankHistory.get_latest(club_obj.club_id)
+            if latest_rank_record:
+                # Get the previous record for delta comparison
+                prev_rank_record = await ClubRankHistory.get_previous(club_obj.club_id, latest_rank_record.date)
+                
+                rank_data = {
+                    'monthly_rank': latest_rank_record.monthly_rank,
+                    'yesterday_rank': prev_rank_record.monthly_rank if prev_rank_record else None,
+                    'last_month_rank': None # Cannot easily determine without more logic, but monthly_rank is most important
+                }
+
+            daily_reports = self.report_generator.create_daily_report(
+                club_obj.club_name, club_obj.daily_quota, status_summary, bombs_data, current_date,
+                rank_data=rank_data, quota_period=club_obj.quota_period
+            )
+
+            # Send all report embeds in the interaction reply
+            if daily_reports:
+                # First embed as followup, others as followups too
+                for i, embed in enumerate(daily_reports):
+                    await interaction.followup.send(embed=embed)
+            else:
+                await interaction.followup.send("ℹ️ No status data found for this club.")
+
+            logger.info(f"Report for {club} shown to {interaction.user} via /check_club")
+
+        except Exception as e:
+            logger.error(f"Error in check_club: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error generating report: {str(e)}")
+    
     async def _send_member_status(self, interaction: discord.Interaction, member: Member):
         """Send a detailed status embed for a member"""
         latest_history = await QuotaHistory.get_latest_for_member(member.member_id)
@@ -400,9 +466,9 @@ class MemberCommands(commands.Cog):
         elif latest_history.days_behind == 2:
             embed.add_field(
                 name="💣 Bomb Warning",
-                value=f"🟡 **1 more day** behind\n"
-                      f"and a bomb will activate!\n"
-                      f"Get on track today.",
+                value="🟡 **1 more day** behind\n"
+                      "and a bomb will activate!\n"
+                      "Get on track today.",
                 inline=True
             )
         else:
@@ -420,9 +486,6 @@ class MemberCommands(commands.Cog):
                       f"Target: **{recommended_daily:,} fans/day**",
                 inline=False
             )
-        
-        # Statistics
-        current_date = date_class.today()
         
         # Calculate streak and get history
         history_records = await QuotaHistory.get_last_n_days(member.member_id, 100)
@@ -538,3 +601,4 @@ class MemberCommands(commands.Cog):
     # Apply autocomplete
     link_trainer.autocomplete('club')(club_autocomplete)
     member_status.autocomplete('club')(club_autocomplete)
+    check_club.autocomplete('club')(club_autocomplete)
