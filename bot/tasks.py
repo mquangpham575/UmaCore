@@ -1,7 +1,7 @@
 """
 Scheduled tasks for the Discord bot
 """
-import discord
+
 from discord.ext import tasks
 from datetime import datetime
 import logging
@@ -73,12 +73,15 @@ class BotTasks:
                             logger.debug(f"{club.club_name}: Already ran today according to in-memory cache ({current_date})")
                             continue
 
-                        # NEW: Check database in case of bot restart or manual /force_check run earlier
-                        existing_data = await QuotaHistory.get_for_date(club.club_id, current_date)
-                        if existing_data:
-                            logger.info(f"{club.club_name}: Data already up to date in DB for {current_date}. Skipping scheduled run.")
-                            self.last_runs[run_key] = True
-                            continue
+                        # NEW: Check wall-clock time in DB to see if we actually finished a scrape today
+                        # This works even if the scraper fell back to 'Yesterday's' data date
+                        last_run_utc = await QuotaHistory.get_last_run_time(club.club_id)
+                        if last_run_utc:
+                            last_run_local = last_run_utc.astimezone(club_tz)
+                            if last_run_local.date() == current_date:
+                                logger.info(f"{club.club_name}: Already successfully run today (at {last_run_local.strftime('%H:%M')}). Skipping scheduled run.")
+                                self.last_runs[run_key] = True
+                                continue
 
                         logger.info(f"⏰ Time to check {club.club_name} ({now_in_club_tz.strftime('%H:%M')} {club.timezone})")
 
@@ -215,7 +218,7 @@ class BotTasks:
                             f"**Other possible causes:**\n"
                             f"• { 'Uma.moe API' if USE_UMAMOE_API else 'ChronoGenesis' } is down or unreachable\n"
                             f"• Network timeout\n"
-                            f"{ f'• Invalid circle_id' if USE_UMAMOE_API else '• Invalid scrape URL' }\n\n"
+                            f"{'• Invalid circle_id' if USE_UMAMOE_API else '• Invalid scrape URL'}\n\n"
                             f"**What to do:**\n"
                             f"• Wait a few hours and try `/force_check` again\n"
                             f"• Check { 'uma.moe' if USE_UMAMOE_API else 'chronogenesis.net' } directly to verify data availability"

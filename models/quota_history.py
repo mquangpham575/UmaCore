@@ -2,7 +2,7 @@
 Quota History data model
 """
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 import logging
@@ -165,6 +165,12 @@ class QuotaHistory:
             ORDER BY qh.date ASC
         """
         return await db.fetch(query, club_id, year, month)
+
+    @classmethod
+    async def get_last_run_time(cls, club_id: UUID) -> Optional[datetime]:
+        """Get the wall-clock time of the last successful data entry for this club"""
+        query = "SELECT MAX(created_at) FROM quota_history WHERE club_id = $1"
+        return await db.fetchval(query, club_id)
 
     @classmethod
     async def get_latest_global_rankings(cls) -> List[Dict[str, Any]]:
