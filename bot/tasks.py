@@ -8,7 +8,7 @@ import logging
 import pytz
 import asyncio
 
-from models import Club, Member, ClubRankHistory, QuotaRequirement
+from models import Club, Member, ClubRankHistory, QuotaRequirement, QuotaHistory
 from scrapers import ChronoGenesisScraper, UmaMoeAPIScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, NotificationService, ScrapeLockManager, ScrapeContext
 from config.settings import USE_UMAMOE_API
@@ -70,13 +70,19 @@ class BotTasks:
 
                         run_key = f"{club.club_id}_{current_date}"
                         if self.last_runs.get(run_key):
-                            logger.debug(f"{club.club_name}: Already ran today ({current_date})")
+                            logger.debug(f"{club.club_name}: Already ran today according to in-memory cache ({current_date})")
+                            continue
+
+                        # NEW: Check database in case of bot restart or manual /force_check run earlier
+                        existing_data = await QuotaHistory.get_for_date(club.club_id, current_date)
+                        if existing_data:
+                            logger.info(f"{club.club_name}: Data already up to date in DB for {current_date}. Skipping scheduled run.")
+                            self.last_runs[run_key] = True
                             continue
 
                         logger.info(f"⏰ Time to check {club.club_name} ({now_in_club_tz.strftime('%H:%M')} {club.timezone})")
 
                         self.last_runs[run_key] = True
-
                         asyncio.create_task(self.daily_check_for_club(club))
                     else:
                         logger.debug(
