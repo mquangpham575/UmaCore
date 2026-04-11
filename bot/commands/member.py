@@ -606,7 +606,6 @@ class MemberCommands(commands.Cog):
         embed.add_field(
             name=rank_label,
             value=f"**Rank:** #{member_rank} of {total_members}\n"
-                  f"**Performance:** {avg_display}\n"
                   f"**Percentile:** {percentile_desc}",
             inline=True
         )
