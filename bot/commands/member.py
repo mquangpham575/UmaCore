@@ -569,20 +569,6 @@ class MemberCommands(commands.Cog):
         if total_members > 0:
             percentile_raw = (member_rank / total_members) * 100
             
-            # Get the actual avg_daily value for display
-            avg_val = 0
-            for r in member_rankings:
-                if r['member_id'] == member.member_id:
-                    avg_val = r['avg_daily']
-                    break
-            
-            if avg_val >= 1_000_000:
-                avg_display = f"{avg_val / 1_000_000:.2f}M/day"
-            elif avg_val >= 1_000:
-                avg_display = f"{avg_val / 1_000:.1f}K/day"
-            else:
-                avg_display = f"{int(avg_val)}/day"
-            
             if member_rank == 1:
                 percentile_desc = "Top 0.01% 👑"
                 rank_label = "🏆 World Rank"
@@ -601,7 +587,6 @@ class MemberCommands(commands.Cog):
         else:
             percentile_desc = "N/A"
             rank_label = "🌍 Global Rank"
-            avg_display = "N/A"
         
         embed.add_field(
             name=rank_label,
