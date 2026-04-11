@@ -56,7 +56,7 @@ jobs:
           DATABASE_URL=postgresql://umacore:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/umacore
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
           LOG_LEVEL=${{ secrets.LOG_LEVEL }}
-          USE_UMAMOE_API=${{ secrets.USE_UMAMOE_API }}
+          USE_UMAMOE_API=false
           ENVEOF"
 
           # Build and deploy
