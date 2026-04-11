@@ -3,7 +3,7 @@ Quota History data model
 """
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from uuid import UUID
 import logging
 
@@ -165,6 +165,25 @@ class QuotaHistory:
             ORDER BY qh.date ASC
         """
         return await db.fetch(query, club_id, year, month)
+
+    @classmethod
+    async def get_latest_global_rankings(cls) -> List[Dict[str, Any]]:
+        """Get the latest deficit_surplus for all active members globally"""
+        query = """
+            WITH RatedHistory AS (
+                SELECT qh.member_id, qh.deficit_surplus,
+                       ROW_NUMBER() OVER (PARTITION BY qh.member_id ORDER BY qh.date DESC) as rn
+                FROM quota_history qh
+                JOIN members m ON qh.member_id = m.member_id
+                WHERE m.is_active = TRUE
+            )
+            SELECT member_id, deficit_surplus
+            FROM RatedHistory
+            WHERE rn = 1
+            ORDER BY deficit_surplus DESC
+        """
+        rows = await db.fetch(query)
+        return [dict(row) for row in rows]
 
     @classmethod
     async def clear_all(cls, club_id: UUID):

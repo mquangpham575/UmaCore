@@ -555,19 +555,8 @@ class MemberCommands(commands.Cog):
             inline=True
         )
         
-        # Rank
-        all_members = await Member.get_all_active(member.club_id)
-        member_rankings = []
-        
-        for m in all_members:
-            m_history = await QuotaHistory.get_latest_for_member(m.member_id)
-            if m_history:
-                member_rankings.append({
-                    'member_id': m.member_id,
-                    'deficit_surplus': m_history.deficit_surplus
-                })
-        
-        member_rankings.sort(key=lambda x: x['deficit_surplus'], reverse=True)
+        # Global Rank
+        member_rankings = await QuotaHistory.get_latest_global_rankings()
         
         member_rank = 0
         for idx, ranking in enumerate(member_rankings, start=1):
@@ -576,20 +565,32 @@ class MemberCommands(commands.Cog):
                 break
         
         total_members = len(member_rankings)
-        percentile = 100 - int((member_rank / total_members) * 100) if total_members > 0 else 0
         
-        if percentile >= 90:
-            percentile_desc = f"Top {100 - percentile}%"
-        elif percentile >= 75:
-            percentile_desc = f"Top {100 - percentile}%"
-        elif percentile >= 50:
-            percentile_desc = f"Top {100 - percentile}%"
+        if total_members > 0:
+            percentile_raw = (member_rank / total_members) * 100
+            
+            if member_rank == 1:
+                percentile_desc = "Top 0.01% 👑"
+                rank_label = "🏆 World Rank"
+            elif percentile_raw <= 1:
+                percentile_desc = f"Top {percentile_raw:.2f}%"
+                rank_label = "🌍 Global Rank"
+            elif percentile_raw <= 10:
+                percentile_desc = f"Top {percentile_raw:.1f}%"
+                rank_label = "🌍 Global Rank"
+            elif percentile_raw <= 50:
+                percentile_desc = f"Top {int(percentile_raw)}%"
+                rank_label = "🌍 Global Rank"
+            else:
+                percentile_desc = f"Bottom {100 - int(percentile_raw)}%"
+                rank_label = "🌍 Global Rank"
         else:
-            percentile_desc = f"Bottom {percentile}%"
+            percentile_desc = "N/A"
+            rank_label = "🌍 Global Rank"
         
         embed.add_field(
-            name="🏆 Rank",
-            value=f"**Club Rank:** #{member_rank} of {total_members}\n"
+            name=rank_label,
+            value=f"**Rank:** #{member_rank} of {total_members}\n"
                   f"**Percentile:** {percentile_desc}",
             inline=True
         )
