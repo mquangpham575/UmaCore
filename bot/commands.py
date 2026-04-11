@@ -2,13 +2,11 @@
 Discord bot commands
 """
 import discord
-from discord import app_commands, ChannelType
+from discord import app_commands
 from discord.ext import commands
-from datetime import datetime, date
+from datetime import datetime
 import logging
 import pytz
-import typing
-from typing import Annotated
 
 from config.settings import TIMEZONE, SCRAPE_URL
 from scrapers import ChronoGenesisScraper
@@ -204,7 +202,7 @@ class QuotaCommands(commands.Cog):
             
             # Create quota requirement
             set_by = f"{interaction.user.name}#{interaction.user.discriminator}"
-            quota_req = await QuotaRequirement.create(
+            await QuotaRequirement.create(
                 effective_date=current_date,
                 daily_quota=amount,
                 set_by=set_by
@@ -350,7 +348,7 @@ class QuotaCommands(commands.Cog):
                     pass
             
             if not report_channel:
-                await interaction.followup.send(f"❌ Report channel not found. Use `/set_report_channel` first.")
+                await interaction.followup.send("❌ Report channel not found. Use `/set_report_channel` first.")
                 return
             
             if not alert_channel:
@@ -370,7 +368,7 @@ class QuotaCommands(commands.Cog):
                     
                     if scraped_data:
                         break
-                except Exception as e:
+                except Exception:
                     if attempt == max_retries:
                         raise
                     await interaction.followup.send(f"⚠️ Attempt {attempt} failed, retrying in {retry_delay}s...")
@@ -391,7 +389,7 @@ class QuotaCommands(commands.Cog):
             # Bombs
             newly_activated = await self.bomb_manager.check_and_activate_bombs(current_date)
             await self.bomb_manager.update_bomb_countdowns(current_date)
-            deactivated = await self.bomb_manager.check_and_deactivate_bombs(current_date)
+            await self.bomb_manager.check_and_deactivate_bombs(current_date)
             members_to_kick = await self.bomb_manager.check_expired_bombs()
             
             # Report
@@ -559,7 +557,7 @@ class QuotaCommands(commands.Cog):
                 return
             
             # Create member
-            member = await Member.create(trainer_name, join_date_obj, trainer_id)
+            await Member.create(trainer_name, join_date_obj, trainer_id)
             
             await interaction.followup.send(
                 f"✅ Added member: {trainer_name} (joined {join_date}, ID: {trainer_id or 'N/A'})"

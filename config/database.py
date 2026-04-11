@@ -2,7 +2,7 @@
 PostgreSQL database connection management
 """
 import asyncpg
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Any
 import logging
 
 logger = logging.getLogger(__name__)

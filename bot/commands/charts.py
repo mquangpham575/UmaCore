@@ -423,7 +423,7 @@ class ChartCommands(commands.Cog):
             # Split into chunks that fit within Discord's 1024-char field limit
             chunk, chunks = [], []
             for line in lines:
-                if sum(len(l) + 1 for l in chunk) + len(line) > 980:
+                if sum(len(ln) + 1 for ln in chunk) + len(line) > 980:
                     chunks.append("\n".join(chunk))
                     chunk = []
                 chunk.append(line)

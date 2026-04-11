@@ -1,6 +1,5 @@
 import discord
 from discord import app_commands
-import typing
 
 def is_admin_or_authorized():
     """Allows Administrators or specific UMA roles (Leader, Officer, Manager)"""

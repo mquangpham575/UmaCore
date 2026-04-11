@@ -4,7 +4,7 @@ Club management commands (add, remove, edit, list)
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import datetime, time
+from datetime import time
 import logging
 import pytz
 import asyncio
@@ -98,7 +98,7 @@ class ClubManagementCommands(commands.Cog):
             
             resolved_quota_period = quota_period.value if quota_period else 'daily'
 
-            club = await Club.create(
+            await Club.create(
                 club_name=club_name,
                 scrape_url=scrape_url,
                 circle_id=circle_id,
@@ -225,7 +225,7 @@ class ClubManagementCommands(commands.Cog):
                        m.content.strip().lower() == f"confirm delete {club.lower()}")
             
             try:
-                confirmation = await self.bot.wait_for('message', check=check, timeout=30.0)
+                await self.bot.wait_for('message', check=check, timeout=30.0)
             except asyncio.TimeoutError:
                 await interaction.followup.send(
                     f"⏰ Deletion cancelled - confirmation timed out for **{club}**"
@@ -513,7 +513,7 @@ class ClubManagementCommands(commands.Cog):
                         scraper_desc = "Uma.moe API enabled 🚀" if USE_UMAMOE_API else "Chrono (via circle_id)"
                         changes_text.append(f"**Circle ID:** {value} ({scraper_desc})")
                     else:
-                        changes_text.append(f"**Circle ID:** Removed (will use ChronoGenesis)")
+                        changes_text.append("**Circle ID:** Removed (will use ChronoGenesis)")
                 elif key == 'daily_quota':
                     if value >= 1_000_000:
                         formatted = f"{value / 1_000_000:.1f}M"

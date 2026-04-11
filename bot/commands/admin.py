@@ -5,7 +5,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from datetime import datetime
-import io
 import json
 import logging
 import pytz
@@ -16,7 +15,6 @@ from services import QuotaCalculator, BombManager, ReportGenerator, MonthlyInfoS
 from models import Member, QuotaRequirement, Club, ClubRankHistory
 from config.settings import USE_UMAMOE_API
 from bot.decorators import is_admin_or_authorized
-import typing
 
 logger = logging.getLogger(__name__)
 

@@ -2,13 +2,13 @@
 Quota calculation service with multi-club support
 """
 from datetime import date, timedelta
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, Optional, Tuple, Set
 from uuid import UUID
 import logging
 import calendar
 import math
 
-from models import Member, QuotaHistory, QuotaRequirement, Bomb, Club
+from models import Member, QuotaHistory, QuotaRequirement
 from config.database import db
 
 logger = logging.getLogger(__name__)

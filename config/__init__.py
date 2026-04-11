@@ -1,7 +1,7 @@
 """
 Configuration package
 """
-from .settings import *
+from . import settings
 from .database import db
 
-__all__ = ['db']
+__all__ = ['db', 'settings']

@@ -1,6 +1,3 @@
 """
-Discord bot package
+Test package for UmaCore
 """
-from .client import create_bot
-
-__all__ = ['create_bot']

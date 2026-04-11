@@ -2,13 +2,11 @@
 Channel and bot settings commands
 """
 import discord
-from discord import app_commands, ChannelType
+from discord import app_commands
 from discord.ext import commands
 from datetime import datetime
 import logging
 import pytz
-import typing
-from typing import Annotated
 
 from models import Club
 from services import MonthlyInfoService
@@ -59,12 +57,6 @@ class SettingsCommands(commands.Cog):
             
             await club_obj.set_channels(report_channel_id=channel.id)
             
-            embed = discord.Embed(
-                title=f"✅ Report Channel Updated - {club}",
-                description=f"Daily reports will now be posted to {channel.mention}",
-                color=discord.Color.green(),
-                timestamp=discord.utils.utcnow()
-            )
             
             await interaction.followup.send(f"✅ Set daily reports for **{club}** to {channel.mention}")
             logger.info(f"Report channel set to {channel.id} for {club} by {interaction.user}")
@@ -133,12 +125,6 @@ class SettingsCommands(commands.Cog):
             
             await club_obj.set_channels(alert_channel_id=channel.id)
             
-            embed = discord.Embed(
-                title=f"✅ Alert Channel Updated - {club}",
-                description=f"Alerts (bomb warnings, kick notifications) will now be posted to {channel.mention}",
-                color=discord.Color.green(),
-                timestamp=discord.utils.utcnow()
-            )
             
             await interaction.followup.send(f"✅ Set alerts for **{club}** to {channel.mention}")
             logger.info(f"Alert channel set to {channel.id} for {club} by {interaction.user}")
