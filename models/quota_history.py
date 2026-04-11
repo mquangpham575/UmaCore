@@ -168,19 +168,32 @@ class QuotaHistory:
 
     @classmethod
     async def get_latest_global_rankings(cls) -> List[Dict[str, Any]]:
-        """Get the latest deficit_surplus for all active members globally"""
+        """Get the latest efficiency (avg daily fans) for all active members globally"""
         query = """
             WITH RatedHistory AS (
-                SELECT qh.member_id, qh.deficit_surplus,
-                       ROW_NUMBER() OVER (PARTITION BY qh.member_id ORDER BY qh.date DESC) as rn
+                SELECT 
+                    qh.member_id, 
+                    qh.cumulative_fans,
+                    qh.deficit_surplus,
+                    qh.date as data_date,
+                    m.join_date,
+                    -- Calculate days active in the current record's month
+                    GREATEST(
+                        (qh.date - GREATEST(m.join_date, date_trunc('month', qh.date)::date)) + 1,
+                        1
+                    ) as days_active,
+                    ROW_NUMBER() OVER (PARTITION BY qh.member_id ORDER BY qh.date DESC) as rn
                 FROM quota_history qh
                 JOIN members m ON qh.member_id = m.member_id
                 WHERE m.is_active = TRUE
             )
-            SELECT member_id, deficit_surplus
+            SELECT 
+                member_id, 
+                (cumulative_fans::float / days_active) as avg_daily,
+                deficit_surplus
             FROM RatedHistory
             WHERE rn = 1
-            ORDER BY deficit_surplus DESC
+            ORDER BY avg_daily DESC, deficit_surplus DESC
         """
         rows = await db.fetch(query)
         return [dict(row) for row in rows]
