@@ -62,26 +62,25 @@ class BotTasks:
                     now_in_club_tz = datetime.now(club_tz)
                     current_date = now_in_club_tz.date()
 
-                    target_hour = club.scrape_time.hour
-                    target_minute = club.scrape_time.minute
-
-                    if (now_in_club_tz.hour == target_hour and
-                            now_in_club_tz.minute >= target_minute):
+                    target_time = club.scrape_time
+                    if now_in_club_tz.time() >= target_time:
 
                         run_key = f"{club.club_id}_{current_date}"
                         if self.last_runs.get(run_key):
                             logger.debug(f"{club.club_name}: Already ran today according to in-memory cache ({current_date})")
                             continue
 
-                        # NEW: Check wall-clock time in DB to see if we actually finished a scrape today
-                        # This works even if the scraper fell back to 'Yesterday's' data date
-                        last_run_utc = await QuotaHistory.get_last_run_time(club.club_id)
-                        if last_run_utc:
-                            last_run_local = last_run_utc.astimezone(club_tz)
-                            if last_run_local.date() == current_date:
-                                logger.info(f"{club.club_name}: Already successfully run today (at {last_run_local.strftime('%H:%M')}). Skipping scheduled run.")
-                                self.last_runs[run_key] = True
-                                continue
+                        # Use the actual latest data date from the DB to see if we've caught up
+                        latest_data_date = await QuotaHistory.get_latest_data_date(club.club_id)
+                        
+                        # Once it's past the reset time (usually 10:10 UTC), we expect to have data for 'Yesterday'
+                        from datetime import timedelta
+                        expected_data_date = current_date - timedelta(days=1)
+
+                        if latest_data_date and latest_data_date >= expected_data_date:
+                            logger.info(f"{club.club_name}: Data for {latest_data_date} already found in DB (Goal: {expected_data_date}). Skipping scheduled run.")
+                            self.last_runs[run_key] = True
+                            continue
 
                         logger.info(f"⏰ Time to check {club.club_name} ({now_in_club_tz.strftime('%H:%M')} {club.timezone})")
 
@@ -91,7 +90,7 @@ class BotTasks:
                         logger.debug(
                             f"{club.club_name}: Not time yet "
                             f"(current: {now_in_club_tz.strftime('%H:%M')}, "
-                            f"target: {target_hour:02d}:{target_minute:02d} {club.timezone})"
+                            f"target: {target_time.strftime('%H:%M')} {club.timezone})"
                         )
 
                 except Exception as e:
@@ -214,7 +213,7 @@ class BotTasks:
                             f"**Last error:** {str(last_error)}\n\n"
                             f"**Most likely cause:**\n"
                             f"• Data for current day not yet available on { 'Uma.moe' if USE_UMAMOE_API else 'ChronoGenesis' }\n"
-                            f"• { 'Uma.moe' if USE_UMAMOE_API else 'Chrono' } typically updates around 15:10 UTC daily\n\n"
+                            f"• { 'Uma.moe' if USE_UMAMOE_API else 'Chrono' } typically updates around 10:10 UTC daily (history may lag)\n\n"
                             f"**Other possible causes:**\n"
                             f"• { 'Uma.moe API' if USE_UMAMOE_API else 'ChronoGenesis' } is down or unreachable\n"
                             f"• Network timeout\n"

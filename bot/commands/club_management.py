@@ -4,13 +4,14 @@ Club management commands (add, remove, edit, list)
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import time
+from datetime import time, datetime
 import logging
 import pytz
 import asyncio
 
-from models import Club, Member
+from models import Club, Member, QuotaRequirement, ClubRankHistory
 from bot.decorators import is_admin_or_authorized
+from services import QuotaCalculator, BombManager, ReportGenerator
 
 from config.settings import USE_UMAMOE_API
 
@@ -25,6 +26,9 @@ class ClubManagementCommands(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
+        self.quota_calculator = QuotaCalculator()
+        self.bomb_manager = BombManager()
+        self.report_generator = ReportGenerator()
     
     async def club_autocomplete(self, interaction: discord.Interaction, current: str):
         """Autocomplete for club names visible in this guild"""
@@ -658,6 +662,79 @@ class ClubManagementCommands(commands.Cog):
             
         except Exception as e:
             logger.error(f"Error in list_members: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}")
+
+    @app_commands.command(name="database_report", description="View current status report using only database data (no scraping)")
+    @app_commands.autocomplete(club=club_autocomplete)
+    async def database_report(self, interaction: discord.Interaction, club: str):
+        """Show the current status of a club based on the last successful scrape"""
+        await interaction.response.defer()
+        
+        try:
+            club_obj = await Club.get_by_name(club)
+            if not club_obj:
+                await interaction.followup.send(f"❌ Club '{club}' not found")
+                return
+            
+            if not club_obj.belongs_to_guild(interaction.guild_id):
+                await interaction.followup.send(f"❌ Club '{club}' is not registered in this server.")
+                return
+
+            # Get the current date in the club's timezone
+            club_tz = pytz.timezone(club_obj.timezone)
+            
+            # Use the actual latest date from the database instead of the wall-clock today
+            from models import QuotaHistory
+            last_run_utc = await QuotaHistory.get_last_run_time(club_obj.club_id)
+            if last_run_utc:
+                # QuotaHistory.date holds the DATA date (e.g., 2026-04-11)
+                # We want to find the latest data date available for this club
+                query = "SELECT MAX(date) FROM quota_history WHERE club_id = $1"
+                from config.database import db
+                report_date = await db.fetchval(query, club_obj.club_id)
+            else:
+                report_date = datetime.now(club_tz).date()
+
+            # Fetch data from DB using the resolved report_date
+            status_summary = await self.quota_calculator.get_member_status_summary(
+                club_obj.club_id, report_date, quota_period=club_obj.quota_period
+            )
+            
+            if club_obj.bombs_enabled:
+                bombs_data = await self.bomb_manager.get_active_bombs_with_members(club_obj.club_id)
+            else:
+                bombs_data = []
+            
+            effective_quota = await QuotaRequirement.get_quota_for_date(club_obj.club_id, report_date)
+            
+            # Fetch rank data if available
+            rank_data = None
+            last_rank = await ClubRankHistory.get_latest(club_obj.club_id)
+            if last_rank:
+                rank_data = {
+                    'monthly_rank': last_rank.monthly_rank,
+                    'yesterday_rank': None, # We don't track historical delta in this quick view
+                    'last_month_rank': None
+                }
+
+            daily_reports = self.report_generator.create_daily_report(
+                club_obj.club_name, effective_quota, status_summary, bombs_data, report_date,
+                rank_data=rank_data, quota_period=club_obj.quota_period
+            )
+            
+            # Prepend a notice that this is from DB
+            await interaction.followup.send(
+                f"📊 **Database Status Report for {club}**\n"
+                f"*(Note: This uses the most recent data already in the database. No new scraping was performed.)*"
+            )
+            
+            for embed in daily_reports:
+                await interaction.followup.send(embed=embed)
+                    
+            logger.info(f"Generated database report for {club} for user {interaction.user}")
+            
+        except Exception as e:
+            logger.error(f"Error in database_report: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     # Autocomplete for club parameter

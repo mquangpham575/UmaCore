@@ -173,6 +173,12 @@ class QuotaHistory:
         return await db.fetchval(query, club_id)
 
     @classmethod
+    async def get_latest_data_date(cls, club_id: UUID) -> Optional[date]:
+        """Get the latest data date (e.g., April 11) available in the database for this club"""
+        query = "SELECT MAX(date) FROM quota_history WHERE club_id = $1"
+        return await db.fetchval(query, club_id)
+
+    @classmethod
     async def get_latest_global_rankings(cls) -> List[Dict[str, Any]]:
         """Get the latest efficiency (avg daily fans) for all active members globally"""
         query = """

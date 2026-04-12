@@ -80,7 +80,7 @@ class ChronoGenesisScraper(BaseScraper):
                 "--no-sandbox",
             ],
             browser_connection_timeout=20.0,
-            browser_connection_max_tries=40,
+            browser_connection_max_tries=60,
         )
 
         best_response = None
@@ -110,18 +110,25 @@ class ChronoGenesisScraper(BaseScraper):
             search_box = await page.select(".club-id-input", timeout=60)
             await search_box.send_keys(self.circle_id)
             await search_box.send_keys(zd.SpecialKeys.ENTER)
-            await asyncio.sleep(3)
+            logger.info(f"Entered circle_id {self.circle_id} and submitted search.")
+            await asyncio.sleep(5)
 
             # Click the result to ensure full club data is loaded
             try:
-                results = await page.select_all(".club-results-row", timeout=10)
+                logger.info("Searching for club row in results...")
+                results = await page.select_all(".club-results-row", timeout=25)
+                clicked = False
                 for result in results:
                     content = result.text_all.lower()
                     if self.circle_id in content:
                         await result.click()
+                        clicked = True
+                        logger.info(f"✅ Clicked matching club row for {self.circle_id}")
                         break
-            except Exception:
-                pass
+                if not clicked:
+                    logger.warning(f"⚠️ No search result found matching circle_id {self.circle_id}")
+            except Exception as e:
+                logger.error(f"❌ Error clicking search result: {e}")
 
             # Wait for background requests to complete
             await asyncio.sleep(8)
@@ -195,9 +202,22 @@ class ChronoGenesisScraper(BaseScraper):
         self.club_start_day = day_numbers[0]
         self.current_day_count = day_numbers[-1]
         
-        # Set the data date based on current month/year and the latest day in history
-        now = date.today()
-        self._data_date = date(now.year, now.month, self.current_day_count)
+        # Set the data date based on the month being filtered and the latest day in history
+        # ChronoGenesis provides 'sdate' (e.g., "2026-04-01") in month_filter[0]
+        month_filter = data.get("month_filter", [])
+        if month_filter and "sdate" in month_filter[0]:
+            try:
+                from datetime import datetime as dt
+                filter_date = dt.strptime(month_filter[0]["sdate"], "%Y-%m-%d").date()
+                self._data_date = date(filter_date.year, filter_date.month, self.current_day_count)
+                logger.debug(f"Resolved data_date from month_filter: {self._data_date}")
+            except Exception as e:
+                logger.warning(f"Failed to parse month_filter sdate: {e}. Falling back to server month.")
+                now = date.today()
+                self._data_date = date(now.year, now.month, self.current_day_count)
+        else:
+            now = date.today()
+            self._data_date = date(now.year, now.month, self.current_day_count)
         
         logger.info(f"Parsed {len(member_data)} members. Data covers days {self.club_start_day} to {self.current_day_count}. Data date: {self._data_date}")
 

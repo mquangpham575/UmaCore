@@ -114,7 +114,7 @@ class AdminCommands(commands.Cog):
             current_datetime = datetime.now(club_tz)
             current_date = current_datetime.date()
 
-            set_by = f"{interaction.user.name}#{interaction.user.discriminator}"
+            set_by = str(interaction.user)
             await QuotaRequirement.create(
                 club_id=club_obj.club_id,
                 effective_date=current_date,
@@ -463,9 +463,10 @@ class AdminCommands(commands.Cog):
 
             # Scrape with retry logic
             max_retries = 3
-            retry_delay = 10
+            retry_delay = 5
             scraped_data = None
             current_day = None
+            last_error = None
 
             for attempt in range(1, max_retries + 1):
                 try:
@@ -475,31 +476,23 @@ class AdminCommands(commands.Cog):
 
                     if scraped_data:
                         break
-                except Exception:
+                    else:
+                        raise ValueError("Scraper returned empty data")
+                except Exception as e:
+                    last_error = e
                     if attempt == max_retries:
-                        raise
-                    await interaction.followup.send(f"⚠️ Attempt {attempt} failed, retrying in {retry_delay}s...")
+                        break
+                    await interaction.followup.send(f"⚠️ Attempt {attempt} failed: {str(e)}. Retrying in {retry_delay}s...")
                     await asyncio.sleep(retry_delay)
                     retry_delay *= 2
 
-            # Save raw response locally for troubleshooting (not sent to Discord)
-            raw_response = scraper.get_raw_response()
-            if raw_response:
-                try:
-                    import os
-                    from pathlib import Path
-                    debug_dir = Path(os.getcwd()) / "debug"
-                    debug_dir.mkdir(exist_ok=True)
-                    
-                    raw_json_str = json.dumps(raw_response, indent=2, ensure_ascii=False)
-                    debug_path = debug_dir / f"last_response_{club}.json"
-                    debug_path.write_text(raw_json_str, encoding="utf-8")
-                    logger.debug(f"Raw response saved to: {debug_path.absolute()}")
-                except Exception as e:
-                    logger.error(f"Failed to save debug JSON locally: {e}")
-            
             if not scraped_data:
-                await interaction.followup.send("❌ Failed to parse any valid member data from the scraper.")
+                error_msg = (
+                    f"❌ Failed to scrape data for **{club}** after {max_retries} attempts.\n\n"
+                    f"**Last error:** {str(last_error)}\n\n"
+                    f"**Most likely cause:** Member history for today is not yet available on the website (typically appearing after the 10:10 UTC reset)."
+                )
+                await interaction.followup.send(error_msg)
                 return
 
             # Use the scraper's data date in case of previous-month fallback (e.g. Day 1)
@@ -614,7 +607,7 @@ class AdminCommands(commands.Cog):
                 )
 
         except Exception as e:
-            logger.error(f"Error in force_check: {e}", exc_info=True)
+            logger.error(f"Error in force_check for {club}: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     @app_commands.command(name="add_member", description="Manually add a new member")
