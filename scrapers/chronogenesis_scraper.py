@@ -2,6 +2,7 @@
 ChronoGenesis website scraper using zendriver (Network Interception & UI Search)
 This implementation adopts the successful strategy from the 'uma_tracking' project.
 """
+
 import os
 import asyncio
 import json
@@ -16,20 +17,22 @@ from scrapers.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
 
+
 class ChronoGenesisScraper(BaseScraper):
     """Scraper for ChronoGenesis.net using network interception and UI simulation"""
-    
+
     def __init__(self, url: str):
         super().__init__(url)
         self.circle_id = self._extract_circle_id(url)
         self.current_day_count = 1
         self.club_start_day = 1
         self._data_date = None
-        
+
     def _extract_circle_id(self, url: str) -> str:
         """Extract circle_id from URL"""
         import re
-        match = re.search(r'circle_id=(\d+)', url)
+
+        match = re.search(r"circle_id=(\d+)", url)
         if match:
             return match.group(1)
         return ""
@@ -51,13 +54,22 @@ class ChronoGenesisScraper(BaseScraper):
         else:
             # Search PATH first, then check common hardcoded locations
             executable = None
-            for name in ("google-chrome", "google-chrome-stable", "chromium-browser", "chromium"):
+            for name in (
+                "google-chrome",
+                "google-chrome-stable",
+                "chromium-browser",
+                "chromium",
+            ):
                 path = shutil.which(name)
                 if path:
                     executable = path
                     break
             if not executable:
-                for path in ("/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium"):
+                for path in (
+                    "/usr/bin/google-chrome",
+                    "/usr/bin/chromium-browser",
+                    "/usr/bin/chromium",
+                ):
                     if os.path.isfile(path):
                         executable = path
                         break
@@ -67,19 +79,9 @@ class ChronoGenesisScraper(BaseScraper):
 
         logger.info(f"Starting zendriver UI-flow with executable: {executable}")
 
-
-        # We use headless=False because xvfb is now enabled in Docker
         browser = await zd.start(
-            browser="chrome" if system == "Linux" else "edge",
             browser_executable_path=executable,
-            headless=False, # Revert to use virtual display
-            sandbox=False,
-            browser_args=[
-                "--disable-gpu",
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-            ],
-            browser_connection_timeout=20.0,
+            browser_connection_timeout=5.0,
             browser_connection_max_tries=60,
         )
 
@@ -91,7 +93,7 @@ class ChronoGenesisScraper(BaseScraper):
             captured_responses = {}
 
             async def response_handler(*args, **kwargs):
-                if args and hasattr(args[0], 'response'):
+                if args and hasattr(args[0], "response"):
                     url = args[0].response.url
                     if "api.chronogenesis.net/club_profile" in url:
                         try:
@@ -99,52 +101,65 @@ class ChronoGenesisScraper(BaseScraper):
                         except Exception:
                             pass
 
-            # Navigate directly to the club profile page like uma_tracking/src/chrono_scraper.py
             page = await browser.get("https://chronogenesis.net/club_profile")
+            await asyncio.sleep(3)
             await page.send(zd.cdp.network.enable())
             page.add_handler(zd.cdp.network.ResponseReceived, response_handler)
-            
-            # Wait for any potential redirection or loading
-            await asyncio.sleep(5)
 
             search_box = await page.select(".club-id-input", timeout=60)
+            logger.info("Search box found")
+            await search_box.click()
+            await asyncio.sleep(1)
             await search_box.send_keys(self.circle_id)
+            await asyncio.sleep(1)
             await search_box.send_keys(zd.SpecialKeys.ENTER)
             logger.info(f"Entered circle_id {self.circle_id} and submitted search.")
-            await asyncio.sleep(5)
+            await asyncio.sleep(3)
 
-            # Click the result to ensure full club data is loaded
             try:
-                logger.info("Searching for club row in results...")
-                results = await page.select_all(".club-results-row", timeout=25)
-                clicked = False
+                page_url = page.url
+                logger.info(f"Current URL after search: {page_url}")
+            except:
+                logger.info("Could not get page URL")
+
+            try:
+                results = await page.select_all(".club-results-row", timeout=45)
+                logger.info(f"Found {len(results)} club results")
                 for result in results:
                     content = result.text_all.lower()
+                    logger.info(f"Checking result: {content[:100]}...")
                     if self.circle_id in content:
                         await result.click()
-                        clicked = True
-                        logger.info(f"✅ Clicked matching club row for {self.circle_id}")
+                        logger.info(f"Clicked club row for {self.circle_id}")
                         break
-                if not clicked:
-                    logger.warning(f"⚠️ No search result found matching circle_id {self.circle_id}")
             except Exception as e:
-                logger.error(f"❌ Error clicking search result: {e}")
+                logger.warning(f"Could not click club row: {e}")
+
+            await asyncio.sleep(8)
 
             # Wait for background requests to complete
             await asyncio.sleep(8)
 
-            target_url_prefix = f"https://api.chronogenesis.net/club_profile?circle_id={self.circle_id}"
+            target_url_prefix = (
+                f"https://api.chronogenesis.net/club_profile?circle_id={self.circle_id}"
+            )
             logger.info(f"Captured {len(captured_responses)} club_profile request(s)")
 
-            for req_id, url in captured_responses.items():
+            for req_id, url in list(captured_responses.items()):
                 try:
                     response_body, _ = await page.send(
                         zd.cdp.network.get_response_body(request_id=req_id)
                     )
-                    # Priority selection matching uma_tracking logic:
-                    # Prefer responses that explicitly contain history data or match the target URL
-                    if "club_friend_history" in response_body or url.startswith(target_url_prefix):
-                        if best_response is None or "club_friend_history" in response_body:
+                    logger.info(
+                        f"Checking response {url[:80]}... has_history={('club_friend_history' in response_body)}"
+                    )
+                    if "club_friend_history" in response_body or url.startswith(
+                        target_url_prefix
+                    ):
+                        if (
+                            best_response is None
+                            or "club_friend_history" in response_body
+                        ):
                             best_response = response_body
                             logger.info(f"Selected response: {url}")
                 except Exception:
@@ -161,7 +176,7 @@ class ChronoGenesisScraper(BaseScraper):
 
     def _parse_api_json(self, data: dict) -> Dict[str, Dict]:
         """Parse core daily data from captured JSON"""
-        history = data.get("club_friend_history", [])
+        history = data.get("club_friend_history") or data.get("club_daily_history") or []
         if not history:
             logger.warning("Empty club_friend_history in API response")
             return {}
@@ -174,58 +189,67 @@ class ChronoGenesisScraper(BaseScraper):
             trainer_id = str(entry.get("friend_viewer_id", ""))
             name = entry.get("friend_name", "Unknown")
             day = entry.get("actual_date")
-            
+
             # Chrono provides lifetime total as 'interpolated_fan_count' in history entries
             lifetime = entry.get("interpolated_fan_count")
             if lifetime is None:
                 lifetime = entry.get("fan_count", 0)
-            
+
             gain = entry.get("adjusted_interpolated_fan_gain", 0)
-            
+
             if not trainer_id:
                 continue
-            
+
             if trainer_id not in member_data:
                 member_data[trainer_id] = {
                     "name": name,
                     "trainer_id": trainer_id,
-                    "daily_map": {}, # day -> (lifetime, gain)
+                    "daily_map": {},  # day -> (lifetime, gain)
                 }
-            
+
             member_data[trainer_id]["daily_map"][day] = (lifetime, gain)
             all_days.add(day)
 
         if not all_days:
             return {}
-        
+
         day_numbers = sorted(list(all_days))
         self.club_start_day = day_numbers[0]
         self.current_day_count = day_numbers[-1]
-        
+
         # Set the data date based on the month being filtered and the latest day in history
         # ChronoGenesis provides 'sdate' (e.g., "2026-04-01") in month_filter[0]
         month_filter = data.get("month_filter", [])
         if month_filter and "sdate" in month_filter[0]:
             try:
                 from datetime import datetime as dt
+
                 filter_date = dt.strptime(month_filter[0]["sdate"], "%Y-%m-%d").date()
-                self._data_date = date(filter_date.year, filter_date.month, self.current_day_count)
+                self._data_date = date(
+                    filter_date.year, filter_date.month, self.current_day_count
+                )
                 logger.debug(f"Resolved data_date from month_filter: {self._data_date}")
             except Exception as e:
-                logger.warning(f"Failed to parse month_filter sdate: {e}. Falling back to server month.")
+                logger.warning(
+                    f"Failed to parse month_filter sdate: {e}. Falling back to server month."
+                )
                 now = date.today()
                 self._data_date = date(now.year, now.month, self.current_day_count)
         else:
             now = date.today()
             self._data_date = date(now.year, now.month, self.current_day_count)
-        
-        logger.info(f"Parsed {len(member_data)} members. Data covers days {self.club_start_day} to {self.current_day_count}. Data date: {self._data_date}")
+
+        logger.info(
+            f"Parsed {len(member_data)} members. Data covers days {self.club_start_day} to {self.current_day_count}. Data date: {self._data_date}"
+        )
 
         final_data = {}
         for tid, info in member_data.items():
             # FILTER: only include members who are present in the latest snapshot
             if self.current_day_count not in info["daily_map"]:
-                logger.debug(f"Skipping member {info['name']} (ID: {tid}) - no data for latest day {self.current_day_count}")
+                logger.debug(
+                    f"Skipping member {info['name']} (ID: {tid}) - no data for latest day {self.current_day_count}"
+                )
                 continue
 
             # CALIBRATION: Find the baseline (lifetime fans before the first history entry)
@@ -233,10 +257,10 @@ class ChronoGenesisScraper(BaseScraper):
             earliest_day = min(info["daily_map"].keys())
             e_lifetime, e_gain = info["daily_map"][earliest_day]
             baseline = e_lifetime - e_gain
-            
+
             fans_list = []
             join_day = earliest_day
-            
+
             for d in day_numbers:
                 if d in info["daily_map"]:
                     lifetime, gain = info["daily_map"][d]
@@ -245,23 +269,23 @@ class ChronoGenesisScraper(BaseScraper):
                 else:
                     # No data for this day in history
                     current_val = 0
-                
+
                 fans_list.append(current_val)
-            
+
             final_data[tid] = {
                 "name": info["name"],
                 "trainer_id": tid,
                 "fans": fans_list,
-                "join_day": join_day
+                "join_day": join_day,
             }
 
         return final_data
 
     def get_current_day(self) -> int:
         return self.current_day_count
-    
+
     def get_club_start_day(self) -> int:
         return self.club_start_day
-    
+
     def get_data_date(self) -> Optional[date]:
         return self._data_date

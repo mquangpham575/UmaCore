@@ -2,11 +2,13 @@ FROM python:3.11-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive
-# Install Chromium (native arm64/amd64 — Google Chrome has no arm64 Linux build).
-# Chromium + Chrome user-agent avoids Cloudflare Turnstile blocking on ChronoGenesis.
+# Install Google Chrome for better compatibility with ChronoGenesis API
 RUN apt-get update && apt-get install -y \
     wget gnupg curl unzip xvfb xdg-utils \
-    chromium \
+    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
