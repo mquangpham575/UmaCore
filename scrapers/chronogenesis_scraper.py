@@ -80,7 +80,17 @@ class ChronoGenesisScraper(BaseScraper):
         logger.info(f"Starting zendriver UI-flow with executable: {executable}")
 
         browser = await zd.start(
+            browser="chrome",
             browser_executable_path=executable,
+            headless=False,
+            sandbox=False,
+            browser_args=[
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--no-first-run",
+                "--no-service-autorun",
+                "--password-store=basic",
+            ],
             browser_connection_timeout=5.0,
             browser_connection_max_tries=60,
         )
@@ -150,20 +160,20 @@ class ChronoGenesisScraper(BaseScraper):
                     response_body, _ = await page.send(
                         zd.cdp.network.get_response_body(request_id=req_id)
                     )
+                    has_history = "club_friend_history" in response_body
                     logger.info(
-                        f"Checking response {url[:80]}... has_history={('club_friend_history' in response_body)}"
+                        f"Checking response {url[:80]}... has_history={has_history}, body_len={len(response_body)}"
                     )
-                    if "club_friend_history" in response_body or url.startswith(
-                        target_url_prefix
-                    ):
-                        if (
-                            best_response is None
-                            or "club_friend_history" in response_body
-                        ):
-                            best_response = response_body
-                            logger.info(f"Selected response: {url}")
-                except Exception:
-                    pass
+                    if has_history:
+                        best_response = response_body
+                        logger.info(f"Selected response with history: {url}")
+                        break
+                    elif url.startswith(target_url_prefix) and best_response is None:
+                        best_response = response_body
+                        logger.info(f"Selected response (fallback): {url}")
+                        logger.info(f"Response preview: {response_body[:500]}")
+                except Exception as e:
+                    logger.warning(f"Failed to get response body: {e}")
         finally:
             await browser.stop()
 
@@ -176,7 +186,9 @@ class ChronoGenesisScraper(BaseScraper):
 
     def _parse_api_json(self, data: dict) -> Dict[str, Dict]:
         """Parse core daily data from captured JSON"""
-        history = data.get("club_friend_history") or data.get("club_daily_history") or []
+        history = (
+            data.get("club_friend_history") or data.get("club_daily_history") or []
+        )
         if not history:
             logger.warning("Empty club_friend_history in API response")
             return {}
