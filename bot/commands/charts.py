@@ -13,7 +13,7 @@ import pytz
 import aiohttp
 
 from models import Club, QuotaHistory, QuotaRequirement
-from scrapers import ChronoGenesisScraper
+from scrapers import UmaMoeAPIScraper
 
 
 # Removed _fetch_previous_month_totals
@@ -23,10 +23,9 @@ logger = logging.getLogger(__name__)
 
 async def _fetch_via_scraper(circle_id: str) -> tuple[dict[str, dict], int, int, int]:
     """
-    Fetch full-month fan progression by using ChronoGenesisScraper UI simulation.
+    Fetch full-month fan progression by using UmaMoeAPIScraper.
     """
-    url = f"https://chronogenesis.net/club_profile?circle_id={circle_id}"
-    scraper = ChronoGenesisScraper(url)
+    scraper = UmaMoeAPIScraper(circle_id)
     parsed_data = await scraper.scrape()
 
     current_day = scraper.get_current_day()
@@ -186,10 +185,10 @@ class ChartCommands(commands.Cog):
             display_month_label = now.strftime("%B %Y")
             member_data: dict[str, dict] | None = None
 
-            # ChronoGenesis UI simulation path: full month data from the scraper
+            # Uma.moe API path: full month data from the scraper
             if club_obj.circle_id:
                 try:
-                    await interaction.followup.send("🔍 Fetching monthly history via UI simulation (this may take 30-60s)...")
+                    await interaction.followup.send("🔍 Fetching monthly history via Uma.moe API...")
                     member_data, _, fetched_year, fetched_month = await _fetch_via_scraper(
                         club_obj.circle_id
                     )

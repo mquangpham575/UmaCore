@@ -35,10 +35,11 @@ jobs:
         run: |
           SSH_CMD="ssh -i $SSH_KEY -o StrictHostKeyChecking=no $VM_USER@$VM_HOST"
 
-          # Sync project files (exclude .git, terraform, docs)
+          # Sync project files (exclude .git, terraform, docs, etc.)
           rsync -avz --delete \
             -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no" \
             --exclude '.git' \
+            --exclude '.github' \
             --exclude 'terraform' \
             --exclude 'docs' \
             --exclude '.env' \
@@ -47,6 +48,8 @@ jobs:
             --exclude '.ssh' \
             --exclude '*.tar.gz' \
             --exclude '__pycache__' \
+            --exclude 'tests' \
+            --exclude '.ruff_cache' \
             ./ $VM_USER@$VM_HOST:/opt/umacore/
 
           # Create .env on the VM
@@ -56,7 +59,7 @@ jobs:
           DATABASE_URL=postgresql://umacore:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/umacore
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
           LOG_LEVEL=${{ secrets.LOG_LEVEL }}
-          USE_UMAMOE_API=false
+          USE_UMAMOE_API=true
           ENVEOF"
 
           # Build and deploy

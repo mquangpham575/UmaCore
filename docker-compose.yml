@@ -12,9 +12,6 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./debug:/app/debug
-    shm_size: 2gb
-    environment:
-      - DISPLAY=:99
     logging:
       driver: "json-file"
       options:

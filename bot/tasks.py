@@ -9,7 +9,7 @@ import pytz
 import asyncio
 
 from models import Club, Member, ClubRankHistory, QuotaRequirement, QuotaHistory
-from scrapers import ChronoGenesisScraper
+from scrapers import UmaMoeAPIScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, NotificationService, ScrapeLockManager, ScrapeContext
 
 logger = logging.getLogger(__name__)
@@ -151,8 +151,21 @@ class BotTasks:
                     last_error = None
 
                     # STEP 1: Initialize Scraper
-                    scraper = ChronoGenesisScraper(club.scrape_url)
-                    logger.info(f"Using ChronoGenesis scraper for {club.club_name}")
+                    circle_id = club.circle_id
+                    if not circle_id:
+                        import re
+                        match = re.search(r'circle_id=(\d+)', club.scrape_url)
+                        if not match:
+                            match = re.search(r'circles/(\d+)', club.scrape_url)
+                        if match:
+                            circle_id = match.group(1)
+                    
+                    if not circle_id:
+                        logger.error(f"Club {club.club_name} missing circle_id and not in scrape_url")
+                        # Fallback to name if possible, but circle_id is preferred
+                    
+                    scraper = UmaMoeAPIScraper(circle_id)
+                    logger.info(f"Using Uma.moe API scraper for {club.club_name} (circle_id: {circle_id})")
 
                     # STEP 2: Scrape with retries
                     for attempt in range(1, max_retries + 1):
@@ -208,7 +221,16 @@ class BotTasks:
                         current_date = data_date
                         logger.info(f"Using scraper's data date: {current_date} (previous-month fallback)")
 
-                    rank_data = None
+                    # Capture club rank data from Uma.moe API
+                    rank_data = {
+                        "monthly_rank": scraper.get_monthly_rank(),
+                        "last_month_rank": scraper.get_last_month_rank(),
+                        "yesterday_rank": scraper.get_yesterday_rank()
+                    }
+                    if any(rank_data.values()):
+                        logger.info(f"Captured club rank data: {rank_data}")
+                    else:
+                        rank_data = None
 
                     # STEP 4: Process the scraped data
                     try:
