@@ -2,29 +2,22 @@ FROM python:3.11-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive
-# Install Google Chrome for better compatibility with ChronoGenesis API
+# Install dependencies
 RUN apt-get update && apt-get install -y \
-    wget gnupg curl unzip xvfb xdg-utils libgbm1 \
-    fonts-liberation libappindicator3-1 \
-    && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && apt-get install -y ./google-chrome-stable_current_amd64.deb \
-    && rm google-chrome-stable_current_amd64.deb \
+    chromium \
+    chromium-driver \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    xvfb \
+    xdg-utils \
+    libgbm1 \
+    && ln -s /usr/bin/chromium /usr/bin/google-chrome \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    # Hotfix for Chrome 146+: privateNetworkRequestPolicy can be missing or None
-    # Replace the from_json call to handle both cases safely
-    python3 -c "\
-import re; \
-p='/usr/local/lib/python3.11/site-packages/zendriver/cdp/network.py'; \
-c=open(p).read(); \
-c=re.sub( \
-    r'private_network_request_policy\s*=\s*PrivateNetworkRequestPolicy\.from_json\(\s*json\[.privateNetworkRequestPolicy.\]\s*\)', \
-    'private_network_request_policy=(PrivateNetworkRequestPolicy.from_json(json[\"privateNetworkRequestPolicy\"]) if json.get(\"privateNetworkRequestPolicy\") is not None else None)', \
-    c); \
-open(p,'w').write(c)" && \
-    python3 -m py_compile /usr/local/lib/python3.11/site-packages/zendriver/cdp/network.py
+# Explicitly install critical dependencies to bypass any requirements.txt sync issues
+RUN pip install --no-cache-dir httpx undetected-chromedriver zendriver discord.py asyncpg python-dotenv
+RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 # Run with virtual display (xvfb)
 CMD xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" python main.py

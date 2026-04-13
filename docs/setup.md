@@ -5,7 +5,7 @@
 - Python 3.10+
 - PostgreSQL database (Neon, Supabase, or local)
 - Discord bot token
-- Chrome/Chromium — only needed if using ChronoGenesis scraper
+- Chrome/Chromium (Installed automatically in Docker)
 
 ## Installation
 
@@ -46,10 +46,7 @@ postgresql://user:password@host:5432/database_name
 DISCORD_TOKEN=your_bot_token_here
 DATABASE_URL=postgresql://user:password@host:5432/database_name
 LOG_LEVEL=INFO
-USE_UMAMOE_API=true
 ```
-
-Set `USE_UMAMOE_API=false` to use ChronoGenesis scraping instead of Uma.moe API.
 
 ### 6. Run the bot
 
@@ -67,7 +64,7 @@ Once the bot is running, do this to get started:
 
 **1. Add your club**
 ```
-/add_club club_name:YourClub scrape_url:... circle_id:860280110
+/add_club club_name:YourClub circle_id:237354394
 ```
 
 **2. Set up channels**
@@ -81,21 +78,6 @@ Once the bot is running, do this to get started:
 /force_check club:YourClub
 ```
 
-**4. (Optional) Post the monthly info board**
-```
-/post_monthly_info club:YourClub channel:#info
-```
-
----
-
-## Finding Your Circle ID
-
-If you want to use the Uma.moe API (recommended):
-
-1. Go to [uma.moe/circles](https://uma.moe/circles/)
-2. Search for your club
-3. Copy the numeric ID from the URL — e.g. `https://uma.moe/circles/860280110` → use `860280110`
-
 ---
 
 ## Deployment
@@ -103,24 +85,10 @@ If you want to use the Uma.moe API (recommended):
 ### Docker
 
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
-### Railway / Render / Fly.io
-
-Create a `Procfile`:
-
-```
-worker: python main.py
-```
-
-### Linux (systemd)
-
-```bash
-sudo nano /etc/systemd/system/umacore.service
-sudo systemctl enable umacore
-sudo systemctl start umacore
-```
+The Docker container includes Chromium and all necessary drivers for the ChronoGenesis scraper to work out of the box.
 
 ---
 

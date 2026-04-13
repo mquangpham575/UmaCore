@@ -13,8 +13,6 @@ from models import Club, Member, QuotaRequirement, ClubRankHistory
 from bot.decorators import is_admin_or_authorized
 from services import QuotaCalculator, BombManager, ReportGenerator
 
-from config.settings import USE_UMAMOE_API
-
 logger = logging.getLogger(__name__)
 
 # Bot author ID for pre-migration club deletion
@@ -382,11 +380,8 @@ class ClubManagementCommands(commands.Cog):
                 )
                 
                 # Scraper type indicator
-                if USE_UMAMOE_API and club.circle_id and club.is_circle_id_valid():
-                    scraper_info = "\n**Scraper:** Uma.moe API 🚀"
-                else:
-                    source_desc = "ChronoGenesis" if not club.circle_id else "Chrono (via circle_id)"
-                    scraper_info = f"\n**Scraper:** {source_desc}"
+                source_desc = "ChronoGenesis" if not club.circle_id else "Chrono (via circle_id)"
+                scraper_info = f"\n**Scraper:** {source_desc}"
 
                 # Bomb status indicator
                 bomb_status = "Enabled ✅" if club.bombs_enabled else "Disabled ❌"
@@ -514,8 +509,8 @@ class ClubManagementCommands(commands.Cog):
             for key, value in updates.items():
                 if key == 'circle_id':
                     if value:
-                        scraper_desc = "Uma.moe API enabled 🚀" if USE_UMAMOE_API else "Chrono (via circle_id)"
-                        changes_text.append(f"**Circle ID:** {value} ({scraper_desc})")
+                        source_desc = "Chrono (via circle_id)"
+                        changes_text.append(f"**Circle ID:** {value} (Scraper: {source_desc})")
                     else:
                         changes_text.append("**Circle ID:** Removed (will use ChronoGenesis)")
                 elif key == 'daily_quota':

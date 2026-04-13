@@ -9,9 +9,8 @@ import pytz
 import asyncio
 
 from models import Club, Member, ClubRankHistory, QuotaRequirement, QuotaHistory
-from scrapers import ChronoGenesisScraper, UmaMoeAPIScraper
+from scrapers import ChronoGenesisScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, NotificationService, ScrapeLockManager, ScrapeContext
-from config.settings import USE_UMAMOE_API
 
 logger = logging.getLogger(__name__)
 
@@ -151,38 +150,9 @@ class BotTasks:
                     current_day = None
                     last_error = None
 
-                    # STEP 1: Select and initialize scraper with validation
-                    if USE_UMAMOE_API:
-                        if not club.circle_id:
-                            logger.error(f"No circle_id configured for {club.club_name} (required when Uma.moe API is enabled)")
-                            error_embed = self.report_generator.create_error_report(
-                                club.club_name,
-                                f"⚠️ **Missing Circle ID for {club.club_name}**\n\n"
-                                f"Uma.moe API is enabled but no circle_id has been set.\n\n"
-                                f"**To fix this:**\n"
-                                f"Use `/edit_club club:{club.club_name} circle_id:<numeric_id>`\n\n"
-                                f"**How to find your Circle ID:**\n"
-                                f"1. Go to https://uma.moe/circles/\n"
-                                f"2. Search for **{club.club_name}**\n"
-                                f"3. Copy the number from the URL"
-                            )
-                            await report_channel.send(embed=error_embed)
-                            return
-
-                        if not club.is_circle_id_valid():
-                            logger.error(f"Invalid circle_id format for {club.club_name}: '{club.circle_id}' (must be numeric)")
-                            error_embed = self.report_generator.create_error_report(
-                                club.club_name,
-                                club.get_circle_id_help_message()
-                            )
-                            await report_channel.send(embed=error_embed)
-                            return
-
-                        scraper = UmaMoeAPIScraper(club.circle_id)
-                        logger.info(f"Using Uma.moe API scraper for {club.club_name} (circle_id: {club.circle_id})")
-                    else:
-                        scraper = ChronoGenesisScraper(club.scrape_url)
-                        logger.info(f"Using ChronoGenesis scraper for {club.club_name}")
+                    # STEP 1: Initialize Scraper
+                    scraper = ChronoGenesisScraper(club.scrape_url)
+                    logger.info(f"Using ChronoGenesis scraper for {club.club_name}")
 
                     # STEP 2: Scrape with retries
                     for attempt in range(1, max_retries + 1):
@@ -212,15 +182,15 @@ class BotTasks:
                             f"Failed to scrape data after {max_retries} attempts.\n\n"
                             f"**Last error:** {str(last_error)}\n\n"
                             f"**Most likely cause:**\n"
-                            f"• Data for current day not yet available on { 'Uma.moe' if USE_UMAMOE_API else 'ChronoGenesis' }\n"
-                            f"• { 'Uma.moe' if USE_UMAMOE_API else 'Chrono' } typically updates around 10:10 UTC daily (history may lag)\n\n"
+                            f"• Data for current day not yet available on ChronoGenesis.\n"
+                            f"• Chronogenesis typically updates around 10:10 UTC daily.\n\n"
                             f"**Other possible causes:**\n"
-                            f"• { 'Uma.moe API' if USE_UMAMOE_API else 'ChronoGenesis' } is down or unreachable\n"
-                            f"• Network timeout\n"
-                            f"{'• Invalid circle_id' if USE_UMAMOE_API else '• Invalid scrape URL'}\n\n"
+                            f"• ChronoGenesis is down or unreachable (check your VM IP status).\n"
+                            f"• Network timeout.\n"
+                            f"• Invalid scrape URL.\n\n"
                             f"**What to do:**\n"
-                            f"• Wait a few hours and try `/force_check` again\n"
-                            f"• Check { 'uma.moe' if USE_UMAMOE_API else 'chronogenesis.net' } directly to verify data availability"
+                            f"• Wait a few hours and try `/force_check` again.\n"
+                            f"• Check chronogenesis.net directly to verify data availability."
                         )
                         logger.error(f"Scraping failed for {club.club_name}: {error_msg}")
 
@@ -238,29 +208,7 @@ class BotTasks:
                         current_date = data_date
                         logger.info(f"Using scraper's data date: {current_date} (previous-month fallback)")
 
-                    # Extract and persist club rank data (Uma.moe API only)
                     rank_data = None
-                    if isinstance(scraper, UmaMoeAPIScraper):
-                        monthly_rank = scraper.get_monthly_rank()
-                        last_month_rank = scraper.get_last_month_rank()
-                        yesterday_rank = scraper.get_yesterday_rank()
-
-                        if monthly_rank is not None:
-                            try:
-                                await ClubRankHistory.save(club.club_id, current_date, monthly_rank, monthly_rank)
-                            except Exception as e:
-                                logger.error(f"Failed to save rank data for {club.club_name}: {e}", exc_info=True)
-
-                            rank_data = {
-                                'monthly_rank': monthly_rank,
-                                'last_month_rank': last_month_rank,
-                                'yesterday_rank': yesterday_rank,
-                            }
-                            logger.info(
-                                f"Rank data for {club.club_name}: "
-                                f"monthly={monthly_rank}, yesterday={yesterday_rank}, "
-                                f"last_month={last_month_rank}"
-                            )
 
                     # STEP 4: Process the scraped data
                     try:

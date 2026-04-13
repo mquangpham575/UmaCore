@@ -20,7 +20,7 @@ def setup_logging():
     )
     
     simple_formatter = logging.Formatter(
-        '%(levelname)s: %(message)s'
+        '%(name)s - %(levelname)s: %(message)s'
     )
     
     # Console handler (stdout) with UTF-8 encoding
@@ -47,9 +47,19 @@ def setup_logging():
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
     
-    # Suppress noisy loggers
-    logging.getLogger('discord').setLevel(logging.WARNING)
-    logging.getLogger('discord.http').setLevel(logging.WARNING)
-    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    # Aggressive suppression
+    # Set root to WARNING to catch all third-party noise, then explicitly enable our code
+    logger.setLevel(logging.WARNING)
+    logging.getLogger('bot').setLevel(logging.INFO)
+    logging.getLogger('scrapers').setLevel(logging.INFO)
+    logging.getLogger('services').setLevel(logging.INFO)
+    logging.getLogger('utils').setLevel(logging.INFO)
+    logging.getLogger('models').setLevel(logging.INFO)
+    logging.getLogger('__main__').setLevel(logging.INFO)
     
-    logger.info("Logging configured successfully")
+    # Specifically target the loudest ones
+    logging.getLogger('zendriver').setLevel(logging.CRITICAL)
+    logging.getLogger('cdp').setLevel(logging.CRITICAL)
+    logging.getLogger('asyncio').setLevel(logging.CRITICAL)
+    
+    logger.info("Logging configured successfully - filtering third-party noise")

@@ -1,59 +1,40 @@
 # Data Sources
 
-UmaCore supports two data sources for fetching member fan counts.
+UmaCore uses **ChronoGenesis.net** as its primary and exclusive data source.
 
 ---
 
-## Uma.moe API (Recommended)
+## ChronoGenesis Scraper (Default)
 
-The primary data source. Fast and reliable.
+The bot uses browser automation (via `zendriver`) to simulate a real user navigating to ChronoGenesis.net, searching for a club, and capturing the detailed member history and monthly fan data.
 
-**Requires:** `circle_id` set on the club (see below)
+**Requires:**
+- `circle_id` set on the club.
+- Chrome/Chromium installed in the environment (bundled in our Docker image).
 
 **What it provides:**
-- Full month history per member
-- Daily cumulative fan counts
-- Club ranking data
+- Full month history per member.
+- Daily cumulative fan counts.
+- Real-time capturing of the underlying JSON data.
 
-**Finding your Circle ID:**
-1. Go to [uma.moe/circles](https://uma.moe/circles/)
-2. Search for your club
-3. Copy the numeric ID from the URL
-   - Example: `https://uma.moe/circles/860280110` → use `860280110`
-4. Set it with `/add_club circle_id:860280110` or `/edit_club circle_id:860280110`
-
-**Timing notes:**
-- Data updates around 15:10 UTC daily
-- On day 1 of the month, the bot fetches the previous month (current month hasn't populated yet)
-- If today's data isn't ready yet, the bot falls back to yesterday's data automatically
+### Finding your Circle ID:
+1. Go to [ChronoGenesis](https://chronogenesis.net/)
+2. Search for your club by name.
+3. Once on the club profile page, copy the numeric ID from the URL (`circle_id=...`).
+   - Example: `https://chronogenesis.net/club_profile?circle_id=237354394` → use `237354394`.
+4. Set it with `/add_club circle_id:237354394` or `/edit_club circle_id:237354394`.
 
 ---
 
-## ChronoGenesis Scraper (Fallback)
-
-Used when a club has no `circle_id`, or when `USE_UMAMOE_API=false` is set in `.env`.
-
-**Requires:** Chrome/Chromium installed on the host machine
-
-**Limitations:**
-- Slower than the API
-- Dependent on ChronoGenesis page structure (may break if the site changes)
-- Less reliable overall
-
-The bot automatically falls back to ChronoGenesis if the Uma.moe API fails.
+## Technical Flow
+The bot follows these steps to fetch data:
+1. Initialize a headless browser instance.
+2. Navigate to ChronoGenesis search.
+3. Input the `circle_id` into the search box.
+4. Intercept the JSON response from `api.chronogenesis.net/club_profile`.
+5. Parse member growth and history to update the bot's database.
 
 ---
 
-## Switching Data Sources
-
-To use Uma.moe API globally (default):
-```env
-USE_UMAMOE_API=true
-```
-
-To force ChronoGenesis globally:
-```env
-USE_UMAMOE_API=false
-```
-
-Per-club: if a club has no `circle_id` set, it always uses ChronoGenesis regardless of the global setting.
+## Previous API notice
+Direct API integrations (like Uma.moe) have been removed to ensure the project relies entirely on browser-simulated UI interaction, which provides better resilience against bot detection on datacenter IP addresses.

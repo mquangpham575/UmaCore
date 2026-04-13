@@ -126,24 +126,21 @@ class ChronoGenesisScraper(BaseScraper):
             logger.info(f"Entered circle_id {self.circle_id} and submitted search.")
             await asyncio.sleep(3)
 
-            try:
-                page_url = page.url
-                logger.info(f"Current URL after search: {page_url}")
-            except:
-                logger.info("Could not get page URL")
-
-            try:
-                results = await page.select_all(".club-results-row", timeout=45)
-                logger.info(f"Found {len(results)} club results")
-                for result in results:
-                    content = result.text_all.lower()
-                    logger.info(f"Checking result: {content[:100]}...")
-                    if self.circle_id in content:
-                        await result.click()
-                        logger.info(f"Clicked club row for {self.circle_id}")
-                        break
-            except Exception as e:
-                logger.warning(f"Could not click club row: {e}")
+            # If we are already on the specific club page, skip the search result click logic
+            if f"circle_id={self.circle_id}" in page.url:
+                logger.info("Successfully redirected to club profile directly.")
+            else:
+                try:
+                    results = await page.select_all(".club-results-row", timeout=15)
+                    logger.info(f"Found {len(results)} club results")
+                    for result in results:
+                        content = result.text_all.lower()
+                        if self.circle_id in content:
+                            await result.click()
+                            logger.info(f"Clicked club row for {self.circle_id}")
+                            break
+                except Exception as e:
+                    logger.debug(f"Could not click club row (might already be on profile): {e}")
 
             await asyncio.sleep(8)
 
@@ -173,7 +170,7 @@ class ChronoGenesisScraper(BaseScraper):
                         logger.info(f"Selected response (fallback): {url}")
                         logger.info(f"Response preview: {response_body[:500]}")
                 except Exception as e:
-                    logger.warning(f"Failed to get response body: {e}")
+                    logger.debug(f"Failed to get response body for {url[:50]}: {e}")
         finally:
             await browser.stop()
 
