@@ -40,18 +40,16 @@ services:
     env_file:
       - .env
     environment:
-      - DISPLAY=:99
       - DATABASE_URL=postgresql://umacore:${POSTGRES_PASSWORD}@postgres:5432/umacore
     volumes:
       - ./logs:/app/logs
       - ./debug:/app/debug
-    shm_size: 2gb
     deploy:
       resources:
         limits:
-          memory: 2560M
-        reservations:
           memory: 512M
+        reservations:
+          memory: 128M
     logging:
       driver: "json-file"
       options:

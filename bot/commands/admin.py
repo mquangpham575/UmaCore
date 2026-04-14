@@ -10,7 +10,7 @@ import logging
 import pytz
 import asyncio
 
-from scrapers import ChronoGenesisScraper
+from scrapers import UmaMoeAPIScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, MonthlyInfoService
 from models import Member, QuotaRequirement, Club, ClubRankHistory
 from bot.decorators import is_admin_or_authorized
@@ -430,10 +430,18 @@ class AdminCommands(commands.Cog):
             current_date = current_datetime.date()
 
             # Select scraper
-            scraper = ChronoGenesisScraper(club_obj.scrape_url)
-            source_name = "Chrono (via circle_id)" if club_obj.circle_id else "ChronoGenesis"
-            await interaction.followup.send(f"Preparing {source_name} UI simulation scraper...")
-            logger.info(f"Using {source_name} scraper for {club_obj.club_name}")
+            circle_id = club_obj.circle_id
+            if not circle_id:
+                import re
+                match = re.search(r'circle_id=(\d+)', club_obj.scrape_url)
+                if not match:
+                    match = re.search(r'circles/(\d+)', club_obj.scrape_url)
+                if match:
+                    circle_id = match.group(1)
+            
+            scraper = UmaMoeAPIScraper(circle_id)
+            await interaction.followup.send(f"Preparing Uma.moe API scraper (circle_id: {circle_id})...")
+            logger.info(f"Using UmaMoeAPIScraper for {club_obj.club_name}")
 
             # Scrape with retry logic
             max_retries = 3
@@ -476,7 +484,14 @@ class AdminCommands(commands.Cog):
                 logger.info(f"Using scraper's data date: {current_date} (previous-month fallback)")
 
             # Processing scraped data
-            rank_data = None
+            # Capture rank data from Uma.moe API
+            rank_data = {
+                "monthly_rank": scraper.get_monthly_rank(),
+                "last_month_rank": scraper.get_last_month_rank(),
+                "yesterday_rank": scraper.get_yesterday_rank()
+            }
+            if not any(rank_data.values()):
+                rank_data = None
 
             # Process scraped data
             await interaction.followup.send("⚙️ Processing data...")
