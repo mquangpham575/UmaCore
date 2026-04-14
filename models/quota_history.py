@@ -23,32 +23,34 @@ class QuotaHistory:
     expected_fans: int
     deficit_surplus: int
     days_behind: int
+    daily_gain: int = 0
     
     @classmethod
     async def create(cls, member_id: UUID, club_id: UUID, date: date, cumulative_fans: int,
-                     expected_fans: int, deficit_surplus: int, days_behind: int) -> 'QuotaHistory':
+                     expected_fans: int, deficit_surplus: int, days_behind: int, daily_gain: int = 0) -> 'QuotaHistory':
         """Create or update quota history for a date"""
         query = """
             INSERT INTO quota_history 
-                (member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind, daily_gain)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (member_id, date) 
             DO UPDATE SET 
                 cumulative_fans = $4,
                 expected_fans = $5,
                 deficit_surplus = $6,
-                days_behind = $7
-            RETURNING id, member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind
+                days_behind = $7,
+                daily_gain = $8
+            RETURNING id, member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind, daily_gain
         """
         row = await db.fetchrow(query, member_id, club_id, date, cumulative_fans, 
-                                expected_fans, deficit_surplus, days_behind)
+                                expected_fans, deficit_surplus, days_behind, daily_gain)
         return cls(**dict(row))
     
     @classmethod
     async def get_latest_for_member(cls, member_id: UUID) -> Optional['QuotaHistory']:
         """Get the most recent quota history for a member"""
         query = """
-            SELECT id, member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind
+            SELECT id, member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind, daily_gain
             FROM quota_history
             WHERE member_id = $1
             ORDER BY date DESC
@@ -63,7 +65,7 @@ class QuotaHistory:
     async def get_last_n_days(cls, member_id: UUID, n: int) -> List['QuotaHistory']:
         """Get last N days of history for a member"""
         query = """
-            SELECT id, member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind
+            SELECT id, member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind, daily_gain
             FROM quota_history
             WHERE member_id = $1
             ORDER BY date DESC
@@ -76,7 +78,7 @@ class QuotaHistory:
     async def get_for_member_date(cls, member_id: UUID, target_date: date) -> Optional['QuotaHistory']:
         """Get a specific member's quota history for a given date"""
         query = """
-            SELECT id, member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind
+            SELECT id, member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind, daily_gain
             FROM quota_history
             WHERE member_id = $1 AND date = $2
         """
@@ -89,7 +91,7 @@ class QuotaHistory:
     async def get_for_date(cls, club_id: UUID, date: date) -> List['QuotaHistory']:
         """Get all quota histories for a specific date in a club"""
         query = """
-            SELECT id, member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind
+            SELECT id, member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind, daily_gain
             FROM quota_history
             WHERE club_id = $1 AND date = $2
         """

@@ -275,8 +275,9 @@ class MemberCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
     @app_commands.command(name="check_club", description="Show the current club status report from database (all members)")
+    @app_commands.autocomplete(club=club_autocomplete)
     async def check_club(self, interaction: discord.Interaction, club: str):
-        """Show full status report for a club without scraping"""
+        # Displays the full status report for a club using database-only data (no scraping).
         await interaction.response.defer()
 
         try:
@@ -507,17 +508,8 @@ class MemberCommands(commands.Cog):
                 else:
                     break
         
-        # Get best day (only compare consecutive records to avoid gap-inflation)
-        best_day_fans = 0
-        if len(history_records) >= 2:
-            for i in range(len(history_records) - 1):
-                current = history_records[i]
-                previous = history_records[i + 1]
-                # Only count as a single day gain if records are exactly 1 day apart
-                if (current.date - previous.date).days == 1:
-                    daily_gain = current.cumulative_fans - previous.cumulative_fans
-                    if daily_gain > best_day_fans:
-                        best_day_fans = daily_gain
+        # Get best day from member record (now accurately calculated from full JSON history)
+        best_day_fans = member.monthly_best_day
         
         # Format stats
         if avg_daily >= 1_000_000:

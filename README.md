@@ -30,6 +30,7 @@ Automated Discord bot that tracks club member fan quotas, manages warning system
 ## Setup
 
 ### Prerequisites
+
 - Python 3.10 or higher
 - PostgreSQL database ([Neon](https://neon.tech), [Supabase](https://supabase.com), etc.)
 - Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
@@ -38,12 +39,14 @@ Automated Discord bot that tracks club member fan quotas, manages warning system
 ### Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone <repository-url>
    cd umamusume-bot
    ```
 
 2. **Install dependencies**
+
    ```bash
    pip install -r requirements.txt
    ```
@@ -60,6 +63,7 @@ Automated Discord bot that tracks club member fan quotas, manages warning system
    - Invite the bot with permissions: Send Messages, Embed Links, Read Messages
 
 5. **Create `.env` file**
+
    ```env
    DISCORD_TOKEN=your_bot_token_here
    DATABASE_URL=postgresql://user:password@host:5432/database_name
@@ -77,6 +81,7 @@ The bot will automatically create database tables on first run.
 ## Quick Start
 
 1. **Add your club**
+
    ```
    /add_club club_name:YourClubName circle_id:your_circle_id
    ```
@@ -87,6 +92,7 @@ The bot will automatically create database tables on first run.
    3. Copy the number at the end of the URL (e.g., `https://uma.moe/circles/860280110` → `860280110`)
 
 2. **Set up channels**
+
    ```
    /set_report_channel club:YourClubName channel:#daily-reports
    /set_alert_channel club:YourClubName channel:#mod-alerts
@@ -102,6 +108,7 @@ The bot will run daily checks automatically at the scheduled time (default: 16:0
 ## Data Sources
 
 ### Uma.moe API (default)
+
 The bot fetches club data directly from the Uma.moe API. This is faster and more reliable than scraping. Requires a numeric `circle_id` per club.
 
 - Enabled by default (`USE_UMAMOE_API=true`)
@@ -109,7 +116,22 @@ The bot fetches club data directly from the Uma.moe API. This is faster and more
 - Each club needs a valid numeric `circle_id` set via `/edit_club`
 - If the API is enabled but a club is missing its `circle_id`, the bot will report an error instead of silently falling back
 
+### GitHub Raw JSON (testing)
+
+For testing, the scraper can read club raw JSON directly from GitHub by `circle_id`.
+
+- Default source: `https://raw.githubusercontent.com/mquangpham575/Uma_Club_Fan_Tracking/main/api_data/<circle_id>.json`
+- Override base URL with `UMAMOE_RAW_DATA_BASE_URL` in `.env`
+- If a matching raw file is found, scraper uses it before Uma.moe API
+- If no matching raw file exists, normal API behavior continues
+
+Supported remote formats:
+
+- Uma.moe-like JSON with `members`
+- Tracking JSON containing `club_friend_profile` and `club_friend_history`
+
 ### ChronoGenesis Scraper
+
 Selenium-based scraper for ChronoGenesis.net. Used when `USE_UMAMOE_API=false`.
 
 - Requires Chrome/Chromium installed
@@ -119,6 +141,7 @@ Selenium-based scraper for ChronoGenesis.net. Used when `USE_UMAMOE_API=false`.
 ## Commands
 
 ### Club Management (Admin)
+
 - `/add_club` - Register a new club to track
 - `/remove_club` - Deactivate a club
 - `/activate_club` - Reactivate a deactivated club
@@ -126,23 +149,27 @@ Selenium-based scraper for ChronoGenesis.net. Used when `USE_UMAMOE_API=false`.
 - `/edit_club` - Edit club settings (quota, schedule, circle_id, etc.)
 
 ### Channel Settings (Admin)
+
 - `/set_report_channel` - Set where daily reports are posted
 - `/set_alert_channel` - Set where alerts are posted
 - `/channel_settings` - View current channel configuration
 - `/post_monthly_info` - Post the monthly info board
 
 ### Quota Management (Admin)
+
 - `/quota` - Set daily quota requirement for a club
 - `/quota_history` - View quota changes this month
 - `/force_check` - Manually trigger daily check and report
 
 ### Member Management (Admin)
+
 - `/add_member` - Manually add a member
 - `/deactivate_member` - Deactivate a member
 - `/activate_member` - Reactivate a member
 - `/bomb_status` - View all active bomb warnings
 
 ### User Commands
+
 - `/link_trainer` - Link your Discord account to your trainer
 - `/unlink` - Remove your trainer link
 - `/my_status` - View your own quota status
@@ -155,23 +182,27 @@ Selenium-based scraper for ChronoGenesis.net. Used when `USE_UMAMOE_API=false`.
 ## How It Works
 
 ### Daily Quota System
+
 - Configurable daily fan requirement (default: 1,000,000 fans/day)
 - Tracks cumulative progress since joining
 - Mid-month quota changes supported
 - Members can catch up from previous deficits
 
 ### Bomb Warning System
+
 - **Activation**: 3 consecutive days behind quota
 - **Countdown**: 7 days to get back on track
 - **Deactivation**: Immediate when member catches up
 - **Expiration**: Manual kick required if still behind after countdown
 
 ### Member Auto-Detection
+
 - **New Members**: Automatically added when they appear in scraped data
 - **Departed Members**: Auto-deactivated when missing from scraped data
 - **Returning Members**: Auto-reactivated when they rejoin (unless manually deactivated)
 
 ### DM Notifications
+
 - Users can link their Discord accounts to trainers
 - Receive DMs for bomb activations
 - Optional daily deficit notifications
@@ -180,19 +211,23 @@ Selenium-based scraper for ChronoGenesis.net. Used when `USE_UMAMOE_API=false`.
 ## Deployment
 
 ### Docker
+
 ```bash
 docker-compose up -d --build
 ```
 
 ### Cloud Hosting
+
 The bot works with Railway, Render, Fly.io, etc.
 
 Create a `Procfile`:
+
 ```
 worker: python main.py
 ```
 
 ### Systemd Service (Linux)
+
 ```bash
 sudo nano /etc/systemd/system/umamusume-bot.service
 sudo systemctl enable umamusume-bot
@@ -202,6 +237,7 @@ sudo systemctl start umamusume-bot
 ## Configuration
 
 Each club can be configured independently:
+
 - Daily quota requirement
 - Scrape time and timezone
 - Bomb trigger days (default: 3)
@@ -213,26 +249,31 @@ Use `/edit_club` to modify settings after creation.
 ## Troubleshooting
 
 **Bot doesn't start**
+
 - Check `bot.log` for errors
 - Verify `DISCORD_TOKEN` and `DATABASE_URL` in `.env`
 - Ensure PostgreSQL database is accessible
 
 **"Missing Circle ID" error**
+
 - Uma.moe API is enabled but the club has no `circle_id` set
 - Run `/edit_club club:YourClub circle_id:<numeric_id>` to fix
 - Find your circle_id at https://uma.moe/circles/
 
 **Uma.moe API errors**
+
 - Verify the `circle_id` is correct and numeric
 - Check if uma.moe is accessible
 - Set `USE_UMAMOE_API=false` in `.env` to temporarily switch to ChronoGenesis
 
 **ChronoGenesis scraping fails**
+
 - Verify Chrome/Chromium is installed (`chromium-browser --version`)
 - Check if ChronoGenesis.net is accessible
 - Cookie consent popup issues may require manual intervention
 
 **Database errors**
+
 - Bot creates tables automatically on first run
 - Verify database connection string format
 - Check database permissions

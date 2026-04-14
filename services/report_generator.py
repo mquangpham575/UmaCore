@@ -31,12 +31,9 @@ class ReportGenerator:
     def create_daily_report(self, club_name: str, daily_quota: int, status_summary: Dict,
                             bombs_data: List[Dict], report_date: date,
                             rank_data: Optional[Dict] = None,
-                            quota_period: str = 'daily') -> List[discord.Embed]:
-        """
-        Create the main daily report embeds.
-
-        Returns a list of embeds (multiple if content is too long).
-        """
+                            quota_period: str = 'daily',
+                            current_day: Optional[int] = None) -> List[discord.Embed]:
+        # Formats and returns a list of Discord embeds for the daily quota report.
         embeds = []
 
         period_info = status_summary.get('period_info')
@@ -46,7 +43,8 @@ class ReportGenerator:
         period_label = period_labels.get(quota_period, 'day')
         quota_line = f"**Quota:** {self.format_fans_short(daily_quota)} fans per {period_label}"
 
-        description = f"**Date:** {report_date.strftime('%B %d, %Y')}\n{quota_line}"
+        day_label = f" (Day {current_day})" if current_day else ""
+        description = f"**Date:** {report_date.strftime('%B %d, %Y')}{day_label}\n{quota_line}"
 
         if period_info:
             p_num = period_info['period_number']
@@ -175,8 +173,8 @@ class ReportGenerator:
             days_text = f"{days_behind} day{'s' if days_behind != 1 else ''}"
             return f"**{member.trainer_name}**: -{self.format_fans_short(deficit)} ({days_text} behind)"
         else:
-            surplus = history.deficit_surplus
-            return f"**{member.trainer_name}**: +{self.format_fans_short(surplus)} ({self.format_fans_short(history.cumulative_fans)} total)"
+            daily_gain = history.daily_gain
+            return f"**{member.trainer_name}**: +{self.format_fans_short(daily_gain)} ({self.format_fans_short(history.cumulative_fans)} total)"
 
     def _split_into_sections(self, items: List[Dict], formatter, max_length: int = 1000) -> List[str]:
         """Split a list of items into text sections that fit within Discord's character limits"""

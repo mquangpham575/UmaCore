@@ -23,6 +23,7 @@ class Member:
     is_active: bool
     manually_deactivated: bool
     last_seen: date
+    monthly_best_day: int = 0
     
     @classmethod
     async def create(cls, club_id: UUID, trainer_name: str, join_date: date, trainer_id: Optional[str] = None) -> 'Member':
@@ -30,7 +31,7 @@ class Member:
         query = """
             INSERT INTO members (club_id, trainer_id, trainer_name, join_date, last_seen)
             VALUES ($1, $2, $3, $4, $5)
-            RETURNING member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen
+            RETURNING member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen, monthly_best_day
         """
         row = await db.fetchrow(query, club_id, trainer_id, trainer_name, join_date, join_date)
         logger.info(f"Created new member: {trainer_name} (ID: {trainer_id}) for club {club_id}")
@@ -40,7 +41,7 @@ class Member:
     async def get_by_trainer_id(cls, club_id: UUID, trainer_id: str) -> Optional['Member']:
         """Get member by trainer ID within a club"""
         query = """
-            SELECT member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen
+            SELECT member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen, monthly_best_day
             FROM members
             WHERE club_id = $1 AND trainer_id = $2
         """
@@ -53,7 +54,7 @@ class Member:
     async def get_by_name(cls, club_id: UUID, trainer_name: str) -> Optional['Member']:
         """Get member by trainer name within a club (case-insensitive)"""
         query = """
-            SELECT member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen
+            SELECT member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen, monthly_best_day
             FROM members
             WHERE club_id = $1 AND LOWER(trainer_name) = LOWER($2)
         """
@@ -66,7 +67,7 @@ class Member:
     async def get_by_id(cls, member_id: UUID) -> Optional['Member']:
         """Get member by UUID"""
         query = """
-            SELECT member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen
+            SELECT member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen, monthly_best_day
             FROM members
             WHERE member_id = $1
         """
@@ -79,7 +80,7 @@ class Member:
     async def get_all_active(cls, club_id: UUID) -> list['Member']:
         """Get all active members for a club"""
         query = """
-            SELECT member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen
+            SELECT member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen, monthly_best_day
             FROM members
             WHERE club_id = $1 AND is_active = TRUE
             ORDER BY trainer_name
@@ -146,3 +147,13 @@ class Member:
         await db.execute(query, new_join_date, self.member_id)
         self.join_date = new_join_date
         logger.info(f"Updated join date for {self.trainer_name} to {new_join_date}")
+
+    async def update_monthly_best_day(self, best_day: int):
+        """Update the best day fan count (max daily gain this month)"""
+        query = """
+            UPDATE members
+            SET monthly_best_day = $1, updated_at = NOW()
+            WHERE member_id = $2
+        """
+        await db.execute(query, best_day, self.member_id)
+        self.monthly_best_day = best_day

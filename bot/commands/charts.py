@@ -13,7 +13,7 @@ import pytz
 import aiohttp
 
 from models import Club, QuotaHistory, QuotaRequirement
-from scrapers import UmaMoeAPIScraper
+from scrapers import UmaGitHubScraper
 
 
 # Removed _fetch_previous_month_totals
@@ -23,9 +23,9 @@ logger = logging.getLogger(__name__)
 
 async def _fetch_via_scraper(circle_id: str) -> tuple[dict[str, dict], int, int, int]:
     """
-    Fetch full-month fan progression by using UmaMoeAPIScraper.
+    Fetch full-month fan progression by using UmaGitHubScraper.
     """
-    scraper = UmaMoeAPIScraper(circle_id)
+    scraper = UmaGitHubScraper(circle_id)
     parsed_data = await scraper.scrape()
 
     current_day = scraper.get_current_day()
@@ -185,22 +185,20 @@ class ChartCommands(commands.Cog):
             display_month_label = now.strftime("%B %Y")
             member_data: dict[str, dict] | None = None
 
-            # Uma.moe API path: full month data from the scraper
-            if club_obj.circle_id:
-                try:
-                    await interaction.followup.send("🔍 Fetching monthly history via Uma.moe API...")
-                    member_data, _, fetched_year, fetched_month = await _fetch_via_scraper(
-                        club_obj.circle_id
-                    )
-                    display_month_label = date(fetched_year, fetched_month, 1).strftime("%B %Y")
-                    logger.info(
-                        f"progress_chart: fetched {len(member_data)} members via UI simulation for {club}"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"UI simulation fetch failed for chart ({club}), falling back to DB: {e}"
-                    )
-                    member_data = None
+            try:
+                await interaction.followup.send("🔍 Fetching monthly history via GitHub API...")
+                member_data, _, fetched_year, fetched_month = await _fetch_via_scraper(
+                    club_obj.circle_id
+                )
+                display_month_label = date(fetched_year, fetched_month, 1).strftime("%B %Y")
+                logger.info(
+                    f"progress_chart: fetched {len(member_data)} members via UI simulation for {club}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"UI simulation fetch failed for chart ({club}), falling back to DB: {e}"
+                )
+                member_data = None
 
             # DB fallback for ChronoGenesis clubs or API failures
             if member_data is None:

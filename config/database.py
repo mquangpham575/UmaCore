@@ -162,7 +162,8 @@ class Database:
             manually_deactivated BOOLEAN DEFAULT FALSE,
             last_seen DATE NOT NULL,
             created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW()
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            monthly_best_day BIGINT DEFAULT 0
         );
         
         -- Migration: Add club_id column if it doesn't exist
@@ -201,6 +202,18 @@ class Database:
             END IF;
         END $$;
         
+        -- Migration: Add monthly_best_day column if it doesn't exist
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name='members' AND column_name='monthly_best_day'
+            ) THEN
+                ALTER TABLE members ADD COLUMN monthly_best_day BIGINT DEFAULT 0;
+                RAISE NOTICE 'Added monthly_best_day column to members';
+            END IF;
+        END $$;
+        
         -- Quota history table
         CREATE TABLE IF NOT EXISTS quota_history (
             id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -211,9 +224,22 @@ class Database:
             expected_fans BIGINT NOT NULL,
             deficit_surplus BIGINT NOT NULL,
             days_behind INTEGER DEFAULT 0,
+            daily_gain BIGINT DEFAULT 0,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             UNIQUE(member_id, date)
         );
+        
+        -- Migration: Add daily_gain column if it doesn't exist
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name='quota_history' AND column_name='daily_gain'
+            ) THEN
+                ALTER TABLE quota_history ADD COLUMN daily_gain BIGINT DEFAULT 0;
+                RAISE NOTICE 'Added daily_gain column to quota_history';
+            END IF;
+        END $$;
         
         -- Migration: Add club_id to quota_history if it doesn't exist
         DO $$ 

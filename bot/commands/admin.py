@@ -10,7 +10,7 @@ import logging
 import pytz
 import asyncio
 
-from scrapers import UmaMoeAPIScraper
+from scrapers import UmaGitHubScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, MonthlyInfoService
 from models import Member, QuotaRequirement, Club, ClubRankHistory
 from bot.decorators import is_admin_or_authorized
@@ -439,9 +439,10 @@ class AdminCommands(commands.Cog):
                 if match:
                     circle_id = match.group(1)
             
-            scraper = UmaMoeAPIScraper(circle_id)
-            await interaction.followup.send(f"Preparing Uma.moe API scraper (circle_id: {circle_id})...")
-            logger.info(f"Using UmaMoeAPIScraper for {club_obj.club_name}")
+            # Scrape with retry logic using the GitHub scraper.
+            scraper = UmaGitHubScraper(circle_id)
+            # Removed preparing data scraper message
+            logger.info(f"Using UmaGitHubScraper for {club_obj.club_name}")
 
             # Scrape with retry logic
             max_retries = 3
@@ -452,11 +453,12 @@ class AdminCommands(commands.Cog):
 
             for attempt in range(1, max_retries + 1):
                 try:
-                    await interaction.followup.send(f"🔄 Scraping {club} (attempt {attempt}/{max_retries})...")
+                    # Removed progress message: Scraping attempt...
                     scraped_data = await scraper.scrape()
                     current_day = scraper.get_current_day()
 
                     if scraped_data:
+                        # Removed data source message
                         break
                     else:
                         raise ValueError("Scraper returned empty data")
@@ -494,7 +496,7 @@ class AdminCommands(commands.Cog):
                 rank_data = None
 
             # Process scraped data
-            await interaction.followup.send("⚙️ Processing data...")
+            # Removed processing data message
             
             # Log parsed data summary to console
             logger.info(f"--- PARSED DATA SUMMARY FOR {club} ---")
@@ -536,7 +538,8 @@ class AdminCommands(commands.Cog):
 
             daily_reports = self.report_generator.create_daily_report(
                 club_obj.club_name, club_obj.daily_quota, status_summary, bombs_data, current_date,
-                rank_data=rank_data, quota_period=club_obj.quota_period
+                rank_data=rank_data, quota_period=club_obj.quota_period,
+                current_day=current_day
             )
 
             for embed in daily_reports:

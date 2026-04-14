@@ -9,7 +9,7 @@ import pytz
 import asyncio
 
 from models import Club, Member, ClubRankHistory, QuotaRequirement, QuotaHistory
-from scrapers import UmaMoeAPIScraper
+from scrapers import UmaGitHubScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, NotificationService, ScrapeLockManager, ScrapeContext
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ class BotTasks:
             logger.error(f"Error in hourly_check: {e}", exc_info=True)
 
     async def daily_check_for_club(self, club: Club):
-        """Daily quota check and report generation for a specific club"""
+        # Coordinates the daily scraping, processing, and reporting for a club.
         logger.info(f"⏳ {club.club_name} queued (waiting for browser slot)...")
         # Limit parallel browser instances using a semaphore
         async with self.scrape_semaphore:
@@ -164,8 +164,8 @@ class BotTasks:
                         logger.error(f"Club {club.club_name} missing circle_id and not in scrape_url")
                         # Fallback to name if possible, but circle_id is preferred
                     
-                    scraper = UmaMoeAPIScraper(circle_id)
-                    logger.info(f"Using Uma.moe API scraper for {club.club_name} (circle_id: {circle_id})")
+                    scraper = UmaGitHubScraper(circle_id)
+                    logger.info(f"Using GitHub data scraper for {club.club_name} (circle_id: {circle_id})")
 
                     # STEP 2: Scrape with retries
                     for attempt in range(1, max_retries + 1):
@@ -323,7 +323,8 @@ class BotTasks:
                         effective_quota = await QuotaRequirement.get_quota_for_date(club.club_id, current_date)
                         daily_reports = self.report_generator.create_daily_report(
                             club.club_name, effective_quota, status_summary, bombs_data, current_date,
-                            rank_data=rank_data, quota_period=club.quota_period
+                            rank_data=rank_data, quota_period=club.quota_period,
+                            current_day=current_day
                         )
 
                         for embed in daily_reports:

@@ -5,6 +5,9 @@ from typing import Dict, Optional, List
 import logging
 import calendar
 import aiohttp
+import os
+import json
+import base64
 from datetime import datetime, date
 
 from scrapers.base_scraper import BaseScraper
@@ -12,125 +15,184 @@ from scrapers.base_scraper import BaseScraper
 logger = logging.getLogger(__name__)
 
 
-class UmaMoeAPIScraper(BaseScraper):
-    """Scraper using Uma.moe API for fast data retrieval"""
+class UmaGitHubScraper(BaseScraper):
+    """Scraper using GitHub API for tracked data retrieval"""
 
-    def __init__(self, circle_id: str):
+    def __init__(self, circle_id: str, owner: str = "mquangpham575", repo: str = "Uma_Club_Fan_Tracking"):
         self.circle_id = circle_id
-        self.base_url = "https://uma.moe/api/v4/circles"
+        self.owner = owner
+        self.repo = repo
+        self.github_token = os.getenv("GITHUB_TOKEN")
         self.current_day_count = 1
-        # Track which year/month was actually fetched (differs from now() on Day 1)
         self._fetched_year = None
         self._fetched_month = None
-        # Set to a date object when the scraper fell back to the previous month;
-        # None when the fetched data matches the current calendar date.
         self._data_date: Optional[date] = None
-        # Club/monthly rank fields from the API response (nested inside "circle" key)
         self._monthly_rank: Optional[int] = None
         self._last_month_rank: Optional[int] = None
         self._yesterday_rank: Optional[int] = None
-        super().__init__(self.base_url)
+        self._data_source: str = "github_api"
+        # Use GitHub API endpoint as the base URL for consistency
+        super().__init__(f"https://api.github.com/repos/{owner}/{repo}/contents/api_data")
 
-    async def _fetch_month(self, session: aiohttp.ClientSession, year: int, month: int) -> Optional[dict]:
-        """Fetch API data for a specific year/month. Returns parsed JSON or None on failure."""
-        params = {
-            "circle_id": self.circle_id,
-            "year": year,
-            "month": month
+    async def _fetch_remote_raw_data(self, session: aiohttp.ClientSession) -> Optional[dict]:
+        """Fetch tracking JSON from GitHub Contents API (Handles metadata and bypasses cache)."""
+        file_path = f"api_data/{self.circle_id}.json"
+        api_url = f"https://api.github.com/repos/{self.owner}/{self.repo}/contents/{file_path}"
+        
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "UmaCore-Scraper"
         }
-        async with session.get(self.base_url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                logger.error(f"Uma.moe API returned status {response.status} for {year}-{month:02d}: {error_text[:200]}")
-                return None
-            return await response.json()
+        if self.github_token:
+            headers["Authorization"] = f"token {self.github_token}"
+
+        try:
+            async with session.get(api_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                if response.status == 404:
+                    logger.info(f"No remote raw data found for circle {self.circle_id} at {api_url}")
+                    return None
+                if response.status != 200:
+                    text = await response.text()
+                    logger.warning(f"GitHub API request failed ({response.status}) for circle {self.circle_id}: {text[:200]}")
+                    return None
+                
+                result = await response.json()
+                content_encoded = result.get("content", "")
+                if not content_encoded:
+                    return None
+                
+                # GitHub API returns content Base64 encoded inside a JSON object
+                content_decoded = base64.b64decode(content_encoded).decode("utf-8")
+                return json.loads(content_decoded)
+        except Exception as e:
+            logger.error(f"Error fetching from GitHub API: {e}")
+            return None
+
+    def _parse_tracker_raw_data(self, raw_data: dict) -> Dict[str, Dict]:
+        """
+        Parse tracking JSON format (club_friend_history/profile).
+        """
+        profile = raw_data.get("club_friend_profile") or []
+        history = raw_data.get("club_friend_history") or []
+
+        if not history:
+            raise ValueError("Tracking raw data missing club_friend_history")
+
+        ym = None
+        month_filter = raw_data.get("month_filter") or []
+        if month_filter and isinstance(month_filter[0], dict):
+            sdate = month_filter[0].get("sdate")
+            if isinstance(sdate, str) and len(sdate) >= 7:
+                try:
+                    dt = datetime.strptime(sdate, "%Y-%m-%d")
+                    ym = (dt.year, dt.month)
+                except ValueError:
+                    ym = None
+
+        if ym:
+            self._fetched_year, self._fetched_month = ym
+        else:
+            now = datetime.now()
+            self._fetched_year, self._fetched_month = now.year, now.month
+
+        names_by_id: Dict[str, str] = {}
+        for p in profile:
+            vid = p.get("friend_viewer_id")
+            if vid is None:
+                continue
+            names_by_id[str(vid)] = p.get("name") or f"Member {vid}"
+
+        by_member: Dict[str, Dict[int, int]] = {}
+        max_day = 1
+        for row in history:
+            vid = row.get("friend_viewer_id")
+            day = row.get("actual_date")
+            cumulative = row.get("adjusted_fan_gain_cumulative")
+            if vid is None or day is None or cumulative is None:
+                continue
+
+            day_int = int(day)
+            if day_int < 1:
+                continue
+
+            member_id = str(vid)
+            by_member.setdefault(member_id, {})[day_int] = int(cumulative)
+            max_day = max(max_day, day_int)
+
+        self.current_day_count = max_day
+        self._data_date = date(self._fetched_year, self._fetched_month, max_day)
+
+        club = (raw_data.get("club") or [{}])[0]
+        self._monthly_rank = club.get("rank")
+        self._yesterday_rank = None
+
+        monthly_history = raw_data.get("club_monthly_history") or []
+        if monthly_history:
+            self._last_month_rank = monthly_history[1].get("rank") if len(monthly_history) > 1 else None
+        else:
+            self._last_month_rank = None
+
+        parsed_data: Dict[str, Dict] = {}
+        for trainer_id, day_values in by_member.items():
+            fans = [0] * max_day
+            for day_num, cumulative in day_values.items():
+                if day_num <= max_day:
+                    fans[day_num - 1] = cumulative
+
+            join_day = 1
+            for idx, val in enumerate(fans, start=1):
+                if val > 0:
+                    join_day = idx
+                    break
+
+            if fans[-1] == 0:
+                continue
+
+            parsed_data[trainer_id] = {
+                "name": names_by_id.get(trainer_id, f"Member {trainer_id}"),
+                "trainer_id": trainer_id,
+                "fans": fans,
+                "join_day": join_day,
+            }
+
+        logger.info(
+            f"Parsed tracking raw data for circle {self.circle_id}: "
+            f"{len(parsed_data)} active members, day {self.current_day_count}"
+        )
+        return parsed_data
 
     async def scrape(self) -> Dict[str, Dict]:
         """
-        Scrape club data from Uma.moe API.
-
-        On Day 1 the new month hasn't populated yet, so we fetch the previous
-        month as the primary data source. We also fetch the current month and
-        use its index 0 as the true endpoint per member.
-
-        On Day 2+, we check if current day data exists (Uma.moe updates ~15:10 UTC).
-        If not, we fall back to previous day to avoid reading zeros.
-
-        Returns:
-            Dict mapping viewer_id -> member data
+        Scrape club data from GitHub API.
+        
+        This replaces the direct Uma.moe API call to avoid rate limits and 
+        uses the tracked data from the fan tracking repository.
         """
         try:
-            now = datetime.now()
-            year = now.year
-            month = now.month
-
-            # Determine which month to use as primary data source
-            if now.day == 1:
-                if month == 1:
-                    year -= 1
-                    month = 12
-                else:
-                    month -= 1
-                last_day = calendar.monthrange(year, month)[1]
-                self._data_date = date(year, month, last_day)
-                logger.info(f"Day 1 detected: fetching previous month ({year}-{month:02d}) as primary source, data date: {self._data_date}")
-
-            self._fetched_year = year
-            self._fetched_month = month
-
-            logger.info(f"Fetching data from Uma.moe API for circle {self.circle_id}...")
-
             async with aiohttp.ClientSession() as session:
-                # Primary fetch: the month we're actually reporting on
-                primary_data = await self._fetch_month(session, year, month)
-                if not primary_data:
-                    raise ValueError(f"Primary API request failed for {year}-{month:02d}")
+                remote_data = await self._fetch_remote_raw_data(session)
+                if not remote_data:
+                    raise ValueError(f"Could not fetch data from GitHub API for circle {self.circle_id}")
 
-                # On Day 1, also fetch current month for endpoint correction
-                endpoint_members = None
-                if now.day == 1:
-                    endpoint_data = await self._fetch_month(session, now.year, now.month)
-                    if endpoint_data and "members" in endpoint_data:
-                        endpoint_members = endpoint_data.get("members", [])
-                        logger.info(f"Fetched {len(endpoint_members)} members from {now.year}-{now.month:02d} for endpoint correction")
-                    else:
-                        logger.warning("Could not fetch current month for endpoint correction — using previous month's last snapshot")
+                self._raw_response = remote_data
+                self._data_source = "github_api"
+                logger.info(f"Using GitHub API data for circle {self.circle_id}")
 
-            # Extract club ranks from the "circle" sub-object.
-            # On Day 1 prefer the current-month endpoint (more timely), fall back to primary.
-            rank_source = (endpoint_data if (now.day == 1 and endpoint_data) else primary_data) or {}
-            circle_data = rank_source.get("circle") or {}
-            self._monthly_rank = circle_data.get("monthly_rank")
-            self._last_month_rank = circle_data.get("last_month_rank")
-            self._yesterday_rank = circle_data.get("yesterday_rank")
-            logger.info(
-                f"Club ranks: monthly_rank={self._monthly_rank}, "
-                f"last_month_rank={self._last_month_rank}, "
-                f"yesterday_rank={self._yesterday_rank}"
-            )
+                # Format check: Tracker format (has 'club_friend_history' or 'club_daily_history')
+                if "club_friend_history" in remote_data or "club_daily_history" in remote_data:
+                    return self._parse_tracker_raw_data(remote_data)
+                
+                # Format check: Legacy API-like format (has 'members')
+                if "members" in remote_data:
+                    now = datetime.now()
+                    parsed_data = self._parse_api_data(remote_data.get("members", []), calendar_day=now.day)
+                    logger.info(f"Successfully parsed {len(parsed_data)} active members from API-like format")
+                    return parsed_data
 
-            if not primary_data or "members" not in primary_data:
-                logger.error("API response missing 'members' field")
-                raise ValueError("Invalid API response structure")
+                raise ValueError("Unsupported data format: expected 'club_friend_history' or 'members'")
 
-            members = primary_data.get("members", [])
-            logger.info(f"API returned {len(members)} members")
-
-            if not members:
-                logger.warning("No members found in API response")
-                return {}
-
-            # Pass calendar_day to _parse_api_data so it can check if data exists
-            parsed_data = self._parse_api_data(members, endpoint_members=endpoint_members, calendar_day=now.day)
-            logger.info(f"Successfully parsed {len(parsed_data)} active members from API")
-
-            return parsed_data
-
-        except aiohttp.ClientError as e:
-            logger.error(f"Network error while fetching from Uma.moe API: {e}")
-            raise
         except Exception as e:
-            logger.error(f"Error during Uma.moe API scraping: {e}")
+            logger.error(f"Error during GitHub API scraping: {e}")
             raise
 
     def _parse_api_data(self, members: list, endpoint_members: Optional[List] = None, calendar_day: int = None) -> Dict[str, Dict]:
@@ -190,11 +252,11 @@ class UmaMoeAPIScraper(BaseScraper):
                     f"Current day {now.day} data not available yet (Uma.moe updates ~15:10 UTC). "
                     f"Using day {current_day} data."
                 )
-                self._data_date = date(now.year, now.month, max(1, current_day - 1))
+                self._data_date = date(now.year, now.month, current_day)
             else:
                 # Current day data exists
                 current_day = now.day
-                self._data_date = date(now.year, now.month, now.day - 1)
+                self._data_date = date(now.year, now.month, now.day)
                 logger.info(f"Day {current_day} data is available (represents day {now.day - 1} competition results)")
 
         self.current_day_count = current_day
@@ -308,3 +370,7 @@ class UmaMoeAPIScraper(BaseScraper):
     def get_yesterday_rank(self) -> Optional[int]:
         """Return the club's rank as of yesterday (from circle.yesterday_rank)."""
         return self._yesterday_rank
+
+    def get_data_source(self) -> str:
+        """Return the source used for the latest scrape: 'api' or 'github_raw'."""
+        return self._data_source

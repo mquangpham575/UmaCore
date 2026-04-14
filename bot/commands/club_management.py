@@ -29,7 +29,7 @@ class ClubManagementCommands(commands.Cog):
         self.report_generator = ReportGenerator()
     
     async def club_autocomplete(self, interaction: discord.Interaction, current: str):
-        """Autocomplete for club names visible in this guild"""
+        """Autocomplete for active club names visible in this guild"""
         try:
             club_names = await Club.get_names_for_guild(interaction.guild_id)
             return [
@@ -39,6 +39,45 @@ class ClubManagementCommands(commands.Cog):
             ][:25]
         except Exception as e:
             logger.error(f"Error in club autocomplete: {e}")
+            return []
+
+    async def inactive_club_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for inactive club names visible in this guild"""
+        try:
+            club_names = await Club.get_inactive_names_for_guild(interaction.guild_id)
+            return [
+                app_commands.Choice(name=name, value=name)
+                for name in club_names
+                if current.lower() in name.lower()
+            ][:25]
+        except Exception as e:
+            logger.error(f"Error in inactive club autocomplete: {e}")
+            return []
+
+    async def all_club_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for all club names (active and inactive) visible in this guild"""
+        try:
+            clubs = await Club.get_all_for_guild(interaction.guild_id)
+            return [
+                app_commands.Choice(name=club.club_name, value=club.club_name)
+                for club in clubs
+                if current.lower() in club.club_name.lower()
+            ][:25]
+        except Exception as e:
+            logger.error(f"Error in all club autocomplete: {e}")
+            return []
+
+    async def external_club_autocomplete(self, interaction: discord.Interaction, current: str):
+        # Autocomplete showing active clubs that do NOT belong to the current guild (for /transfer_club).
+        try:
+            club_names = await Club.get_names_not_in_guild(interaction.guild_id)
+            return [
+                app_commands.Choice(name=name, value=name)
+                for name in club_names
+                if current.lower() in name.lower()
+            ][:25]
+        except Exception as e:
+            logger.error(f"Error in external club autocomplete: {e}")
             return []
     
     @app_commands.command(name="add_club", description="Register a new club to track (Staff only)")
@@ -746,12 +785,12 @@ class ClubManagementCommands(commands.Cog):
             logger.error(f"Error in global club autocomplete: {e}")
             return []
 
-    remove_club.autocomplete('club')(club_autocomplete)
-    activate_club.autocomplete('club')(club_autocomplete)
+    remove_club.autocomplete('club')(all_club_autocomplete)
+    activate_club.autocomplete('club')(inactive_club_autocomplete)
     deactivate_club.autocomplete('club')(club_autocomplete)
-    edit_club.autocomplete('club')(club_autocomplete)
-    transfer_club.autocomplete('club')(global_club_autocomplete)
-    list_members.autocomplete('club')(club_autocomplete)
+    edit_club.autocomplete('club')(all_club_autocomplete)
+    transfer_club.autocomplete('club')(external_club_autocomplete)
+    list_members.autocomplete('club')(all_club_autocomplete)
 
 
 async def setup(bot):

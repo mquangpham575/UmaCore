@@ -181,7 +181,7 @@ class QuotaCalculator:
             
             # Clear manual deactivation flags for this club
             await db.execute(
-                "UPDATE members SET manually_deactivated = FALSE WHERE club_id = $1 AND manually_deactivated = TRUE",
+                "UPDATE members SET manually_deactivated = FALSE, monthly_best_day = 0 WHERE club_id = $1",
                 club_id
             )
             logger.info(f"Monthly reset complete for club {club_id}")
@@ -273,6 +273,14 @@ class QuotaCalculator:
             stored_quota = await QuotaRequirement.get_quota_for_date(club_id, data_date)
             days_behind = await self._calculate_days_behind(member.member_id, deficit_surplus, data_date, stored_quota)
             
+            # Calculate daily gain from the JSON history array (ensures consistency with raw data)
+            daily_gain = 0
+            if current_day > 1 and len(daily_fans) >= current_day:
+                # Array is 0-indexed: current_day 13 is at index 12
+                daily_gain = daily_fans[current_day - 1] - daily_fans[current_day - 2]
+            elif current_day == 1 and len(daily_fans) >= 1:
+                daily_gain = daily_fans[0]
+            
             # Store history keyed to data_date
             await QuotaHistory.create(
                 member_id=member.member_id,
@@ -281,10 +289,25 @@ class QuotaCalculator:
                 cumulative_fans=cumulative_fans,
                 expected_fans=expected_fans,
                 deficit_surplus=deficit_surplus,
-                days_behind=days_behind
+                days_behind=days_behind,
+                daily_gain=daily_gain
             )
             
             updated_members += 1
+            
+            # Accurate "Best Day" calculation from the full monthly history array
+            if len(daily_fans) >= 2:
+                best_day = 0
+                for i in range(1, len(daily_fans)):
+                    # Only compare days that have valid data (greater than 0)
+                    if daily_fans[i] > 0 and daily_fans[i-1] > 0:
+                        gain = daily_fans[i] - daily_fans[i-1]
+                        if gain > best_day:
+                            best_day = gain
+                
+                if best_day > 0:
+                    await member.update_monthly_best_day(best_day)
+                    logger.debug(f"Updated Best Day for {trainer_name}: +{best_day:,}")
             
             logger.debug(f"{trainer_name}: {cumulative_fans:,} fans "
                         f"(expected: {expected_fans:,}, {deficit_surplus:+,}, days active: {days_active})")
