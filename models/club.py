@@ -124,14 +124,14 @@ class Club:
     
     @classmethod
     async def get_all_for_guild(cls, guild_id: int) -> List['Club']:
-        """Get clubs registered to a specific guild, plus any pre-migration clubs (guild_id IS NULL)"""
+        """Get clubs registered to a specific guild (excludes orphans)"""
         query = """
             SELECT club_id, club_name, scrape_url, circle_id, guild_id, daily_quota, quota_period,
                    timezone, scrape_time, bomb_trigger_days, bomb_countdown_days, bombs_enabled,
                    is_active, report_channel_id, alert_channel_id, monthly_info_channel_id,
                    monthly_info_message_id, created_at, updated_at
             FROM clubs
-            WHERE guild_id = $1 OR guild_id IS NULL
+            WHERE guild_id = $1
             ORDER BY daily_quota DESC, club_name ASC
         """
         rows = await db.fetch(query, guild_id)
@@ -155,7 +155,7 @@ class Club:
         query = """
             SELECT club_name
             FROM clubs
-            WHERE is_active = TRUE AND (guild_id = $1 OR guild_id IS NULL)
+            WHERE is_active = TRUE AND guild_id = $1
             ORDER BY club_name
         """
         rows = await db.fetch(query, guild_id)
