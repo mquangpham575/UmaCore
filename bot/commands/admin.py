@@ -474,7 +474,7 @@ class AdminCommands(commands.Cog):
                 error_msg = (
                     f"❌ Failed to scrape data for **{club}** after {max_retries} attempts.\n\n"
                     f"**Last error:** {str(last_error)}\n\n"
-                    f"**Most likely cause:** Member history for today is not yet available on the website (typically appearing after the 10:10 UTC reset)."
+                    f"**Most likely cause:** Member history for today is not yet available on the website (typically appearing after the 10:15 UTC reset)."
                 )
                 await interaction.followup.send(error_msg)
                 return

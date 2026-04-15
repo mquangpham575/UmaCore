@@ -20,7 +20,7 @@ SCRAPE_RETRY_DELAY = 1  # seconds
 
 # Timezone Configuration
 TIMEZONE = "UTC"
-DAILY_REPORT_TIME = "10:10"
+DAILY_REPORT_TIME = "10:15"
 
 # Quota Rules
 DAILY_QUOTA = 1_000_000

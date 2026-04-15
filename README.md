@@ -116,19 +116,14 @@ The bot fetches club data directly from the Uma.moe API. This is faster and more
 - Each club needs a valid numeric `circle_id` set via `/edit_club`
 - If the API is enabled but a club is missing its `circle_id`, the bot will report an error instead of silently falling back
 
-### GitHub Raw JSON (testing)
+### Chrono API (Secondary)
 
-For testing, the scraper can read club raw JSON directly from GitHub by `circle_id`.
+The bot can fetch club data directly from the Chrono API using an official authorization key. This serves as a high-performance alternative to browser scraping and a backup to the Uma.moe API.
 
-- Default source: `https://raw.githubusercontent.com/mquangpham575/Uma_Club_Fan_Tracking/main/api_data/<circle_id>.json`
-- Override base URL with `UMAMOE_RAW_DATA_BASE_URL` in `.env`
-- If a matching raw file is found, scraper uses it before Uma.moe API
-- If no matching raw file exists, normal API behavior continues
-
-Supported remote formats:
-
-- Uma.moe-like JSON with `members`
-- Tracking JSON containing `club_friend_profile` and `club_friend_history`
+- This method replaces the legacy GitHub-based tracking logic.
+- Requires `CHRONO_API_KEY` set in your `.env`.
+- Data is fetched directly from `api.chronogenesis.net`.
+- Uses the same `circle_id` as the Uma.moe API.
 
 ### ChronoGenesis Scraper
 

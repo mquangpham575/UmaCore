@@ -16,13 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 class UmaGitHubScraper(BaseScraper):
-    """Scraper using GitHub API for tracked data retrieval"""
+    """Scraper using Chrono API for direct data retrieval (Legacy name kept for compatibility)"""
 
-    def __init__(self, circle_id: str, owner: str = "mquangpham575", repo: str = "Uma_Club_Fan_Tracking"):
+    def __init__(self, circle_id: str):
         self.circle_id = circle_id
-        self.owner = owner
-        self.repo = repo
-        self.github_token = os.getenv("GITHUB_TOKEN")
+        self.chrono_token = os.getenv("CHRONO_API_KEY")
         self.current_day_count = 1
         self._fetched_year = None
         self._fetched_month = None
@@ -30,42 +28,35 @@ class UmaGitHubScraper(BaseScraper):
         self._monthly_rank: Optional[int] = None
         self._last_month_rank: Optional[int] = None
         self._yesterday_rank: Optional[int] = None
-        self._data_source: str = "github_api"
-        # Use GitHub API endpoint as the base URL for consistency
-        super().__init__(f"https://api.github.com/repos/{owner}/{repo}/contents/api_data")
+        self._data_source: str = "chrono_api"
+        # Base URL for the Chrono API
+        super().__init__(f"https://api.chronogenesis.net/club_profile?circle_id={circle_id}")
 
     async def _fetch_remote_raw_data(self, session: aiohttp.ClientSession) -> Optional[dict]:
-        """Fetch tracking JSON from GitHub Contents API (Handles metadata and bypasses cache)."""
-        file_path = f"api_data/{self.circle_id}.json"
-        api_url = f"https://api.github.com/repos/{self.owner}/{self.repo}/contents/{file_path}"
+        """Fetch tracking JSON from Chrono API directly."""
+        api_url = f"https://api.chronogenesis.net/club_profile?circle_id={self.circle_id}"
         
         headers = {
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "UmaCore-Scraper"
+            "Authorization": f"{self.chrono_token}",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
-        if self.github_token:
-            headers["Authorization"] = f"token {self.github_token}"
 
         try:
             async with session.get(api_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                if response.status == 404:
-                    logger.info(f"No remote raw data found for circle {self.circle_id} at {api_url}")
-                    return None
-                if response.status != 200:
+                if response.status == 200:
+                    return await response.json()
+                
+                if response.status == 403:
+                    logger.warning(f"Chrono API: 403 Forbidden. Check your CHRONO_API_KEY.")
+                elif response.status == 404:
+                    logger.info(f"Chrono API: No data found for circle {self.circle_id}")
+                else:
                     text = await response.text()
-                    logger.warning(f"GitHub API request failed ({response.status}) for circle {self.circle_id}: {text[:200]}")
-                    return None
+                    logger.warning(f"Chrono API request failed ({response.status}): {text[:200]}")
                 
-                result = await response.json()
-                content_encoded = result.get("content", "")
-                if not content_encoded:
-                    return None
-                
-                # GitHub API returns content Base64 encoded inside a JSON object
-                content_decoded = base64.b64decode(content_encoded).decode("utf-8")
-                return json.loads(content_decoded)
+                return None
         except Exception as e:
-            logger.error(f"Error fetching from GitHub API: {e}")
+            logger.error(f"Error fetching from Chrono API: {e}")
             return None
 
     def _parse_tracker_raw_data(self, raw_data: dict) -> Dict[str, Dict]:

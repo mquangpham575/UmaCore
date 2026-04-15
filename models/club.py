@@ -45,7 +45,7 @@ class Club:
                      bombs_enabled: bool = False) -> 'Club':
         """Create a new club"""
         if scrape_time is None:
-            scrape_time = time(16, 0)
+            scrape_time = time(10, 15)
 
         query = """
             INSERT INTO clubs (club_name, scrape_url, circle_id, guild_id, daily_quota, quota_period,

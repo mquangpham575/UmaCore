@@ -4,7 +4,7 @@
 
 param (
     [Parameter(Mandatory=$true)]
-    [ValidateSet("sync-all", "db-reset", "db-reset-all")]
+    [ValidateSet("sync-all", "db-reset", "db-reset-all", "check-schedule")]
     [string]$Action,
 
     [Parameter(Mandatory=$false)]
@@ -15,8 +15,13 @@ $SSH_KEY = ".ssh\umacore_key"
 $IP = "20.212.105.13"
 $User = "umacore"
 $Container = "umacore-bot"
+$DB_Container = "umacore-postgres"
 
 switch ($Action) {
+    "check-schedule" {
+        Write-Host "📅 Fetching schedule update times for all clubs..." -ForegroundColor Cyan
+        ssh -i $SSH_KEY "$User@$IP" "docker exec $DB_Container psql -U umacore -c 'SELECT club_name, scrape_time FROM clubs ORDER BY club_name;'"
+    }
     "sync-all" {
         Write-Host "🔄 Triggering full club sync with raw data on Azure VM..." -ForegroundColor Cyan
         ssh -i $SSH_KEY "$User@$IP" "docker exec -t $Container python utils/scrape_all_clubs.py"

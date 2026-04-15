@@ -72,7 +72,7 @@ class BotTasks:
                         # Use the actual latest data date from the DB to see if we've caught up
                         latest_data_date = await QuotaHistory.get_latest_data_date(club.club_id)
                         
-                        # Once it's past the reset time (usually 10:10 UTC), we expect to have data for 'Yesterday'
+                        # Once it's past the reset time (usually 10:15 UTC), we expect to have data for 'Yesterday'
                         from datetime import timedelta
                         expected_data_date = current_date - timedelta(days=1)
 
@@ -196,7 +196,7 @@ class BotTasks:
                             f"**Last error:** {str(last_error)}\n\n"
                             f"**Most likely cause:**\n"
                             f"• Data for current day not yet available on ChronoGenesis.\n"
-                            f"• Chronogenesis typically updates around 10:10 UTC daily.\n\n"
+                            f"• Chronogenesis typically updates around 10:15 UTC daily.\n\n"
                             f"**Other possible causes:**\n"
                             f"• ChronoGenesis is down or unreachable (check your VM IP status).\n"
                             f"• Network timeout.\n"
