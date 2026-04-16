@@ -4,7 +4,7 @@
 
 param (
     [Parameter(Mandatory=$true)]
-    [ValidateSet("sync-all", "db-reset", "db-reset-all", "check-schedule")]
+    [ValidateSet("sync-all", "db-reset", "db-reset-all", "check-schedule", "set-schedule-all")]
     [string]$Action,
 
     [Parameter(Mandatory=$false)]
@@ -47,5 +47,16 @@ switch ($Action) {
         } else {
             Write-Host "❌ Reset aborted." -ForegroundColor Gray
         }
+    }
+    "set-schedule-all" {
+        if (-not $Identifier) {
+            Write-Host "❌ Error: set-schedule-all requires a time (HH:MM)." -ForegroundColor Red
+            Write-Host "Usage: .\bot_control.ps1 set-schedule-all '10:02'" -ForegroundColor Gray
+            return
+        }
+        Write-Host "🕒 Updating schedule for ALL clubs to $Identifier UTC on Azure VM..." -ForegroundColor Yellow
+        $Query = "UPDATE clubs SET scrape_time = '$Identifier', timezone = 'UTC', updated_at = NOW();"
+        echo $Query | ssh -i $SSH_KEY "$User@$IP" "docker exec -i $DB_Container psql -U umacore"
+        Write-Host "✅ Global schedule update finished." -ForegroundColor Green
     }
 }

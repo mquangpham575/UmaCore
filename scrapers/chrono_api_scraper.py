@@ -60,9 +60,7 @@ class UmaGitHubScraper(BaseScraper):
             return None
 
     def _parse_tracker_raw_data(self, raw_data: dict) -> Dict[str, Dict]:
-        """
-        Parse tracking JSON format (club_friend_history/profile).
-        """
+        """Parse raw JSON from Chrono API (Same format as tracking exports)"""
         profile = raw_data.get("club_friend_profile") or []
         history = raw_data.get("club_friend_history") or []
 
@@ -154,22 +152,22 @@ class UmaGitHubScraper(BaseScraper):
 
     async def scrape(self) -> Dict[str, Dict]:
         """
-        Scrape club data from GitHub API.
+        Scrape club data from Chrono API directly.
         
-        This replaces the direct Uma.moe API call to avoid rate limits and 
-        uses the tracked data from the fan tracking repository.
+        This replaces the indirect GitHub-based fetching to provide 
+        near real-time data directly from the source.
         """
         try:
             async with aiohttp.ClientSession() as session:
                 remote_data = await self._fetch_remote_raw_data(session)
                 if not remote_data:
-                    raise ValueError(f"Could not fetch data from GitHub API for circle {self.circle_id}")
+                    raise ValueError(f"Could not fetch data from Chrono API for circle {self.circle_id}")
 
                 self._raw_response = remote_data
-                self._data_source = "github_api"
-                logger.info(f"Using GitHub API data for circle {self.circle_id}")
+                self._data_source = "chrono_api"
+                logger.info(f"Using Chrono API data for circle {self.circle_id}")
 
-                # Format check: Tracker format (has 'club_friend_history' or 'club_daily_history')
+                # Format check: API format (has 'club_friend_history' or 'club_daily_history')
                 if "club_friend_history" in remote_data or "club_daily_history" in remote_data:
                     return self._parse_tracker_raw_data(remote_data)
                 
@@ -177,13 +175,13 @@ class UmaGitHubScraper(BaseScraper):
                 if "members" in remote_data:
                     now = datetime.now()
                     parsed_data = self._parse_api_data(remote_data.get("members", []), calendar_day=now.day)
-                    logger.info(f"Successfully parsed {len(parsed_data)} active members from API-like format")
+                    logger.info(f"Successfully parsed {len(parsed_data)} active members from Chrono format")
                     return parsed_data
 
                 raise ValueError("Unsupported data format: expected 'club_friend_history' or 'members'")
 
         except Exception as e:
-            logger.error(f"Error during GitHub API scraping: {e}")
+            logger.error(f"Error during Chrono API scraping: {e}")
             raise
 
     def _parse_api_data(self, members: list, endpoint_members: Optional[List] = None, calendar_day: int = None) -> Dict[str, Dict]:

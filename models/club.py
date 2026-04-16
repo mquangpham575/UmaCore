@@ -39,13 +39,13 @@ class Club:
     async def create(cls, club_name: str, scrape_url: str, circle_id: Optional[str] = None,
                      guild_id: Optional[int] = None,
                      daily_quota: int = 1000000, quota_period: str = 'daily',
-                     timezone: str = 'Europe/Amsterdam',
+                     timezone: str = 'UTC',
                      scrape_time: time = None, bomb_trigger_days: int = 3,
                      bomb_countdown_days: int = 7,
                      bombs_enabled: bool = False) -> 'Club':
         """Create a new club"""
         if scrape_time is None:
-            scrape_time = time(10, 15)
+            scrape_time = time(10, 2)
 
         query = """
             INSERT INTO clubs (club_name, scrape_url, circle_id, guild_id, daily_quota, quota_period,

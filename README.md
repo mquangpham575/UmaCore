@@ -297,7 +297,7 @@ umamusume-bot/
 ├── scrapers/              # Data fetching
 │   ├── base_scraper.py
 │   ├── chronogenesis_scraper.py
-│   └── umamoe_api_scraper.py
+│   └── chrono_api_scraper.py
 ├── services/              # Business logic
 │   ├── quota_calculator.py
 │   ├── bomb_manager.py

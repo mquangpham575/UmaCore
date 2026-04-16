@@ -4,7 +4,8 @@ Member status and user linking commands
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import date as date_class, datetime
+from datetime import date as date_class, datetime, timedelta
+import aiohttp
 import logging
 
 from models import Member, QuotaHistory, Bomb, UserLink, Club, QuotaRequirement, ClubRankHistory
@@ -274,6 +275,84 @@ class MemberCommands(commands.Cog):
             logger.error(f"Error in member_status: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
+    @app_commands.command(name="verify", description="Verify a trainer's stats and current club from uma.moe")
+    @app_commands.describe(trainer_id="The 12-digit Trainer ID (Viewer ID) to check")
+    async def verify(self, interaction: discord.Interaction, trainer_id: str):
+        """Verify a trainer's stats and current club from uma.moe"""
+        await interaction.response.defer()
+        
+        try:
+            # Validate trainer_id
+            if not trainer_id.isdigit():
+                await interaction.followup.send("❌ Invalid Trainer ID. Must be numeric.")
+                return
+
+            now = datetime.utcnow()
+            # uma.moe API uses current month/year
+            month = now.month
+            year = now.year
+            
+            url = f"https://uma.moe/api/v4/rankings/monthly?month={month}&year={year}&page=0&limit=100&query={trainer_id}&circle_name={trainer_id}"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=15) as response:
+                    if response.status != 200:
+                        await interaction.followup.send(f"❌ uma.moe API error (Status: {response.status})")
+                        return
+                    
+                    data = await response.json()
+            
+            rankings = data.get('rankings', [])
+            if not rankings:
+                await interaction.followup.send(f"❌ No data found for Trainer ID: `{trainer_id}` on uma.moe for {month}/{year}.")
+                return
+            
+            trainer = rankings[0]
+            name = trainer.get('trainer_name', 'Unknown')
+            total_fans = trainer.get('total_fans', 0)
+            monthly_gain = trainer.get('monthly_gain', 0)
+            avg_daily = trainer.get('avg_daily', 0)
+            active_days = trainer.get('active_days', 0)
+            club_name = trainer.get('circle_name', 'None')
+            
+            embed = discord.Embed(
+                title=f"✅ Verification: {name}",
+                description=f"Stats retrieved from uma.moe for **{datetime(year, month, 1).strftime('%B %Y')}**",
+                color=discord.Color.blue(),
+                timestamp=discord.utils.utcnow()
+            )
+            
+            embed.add_field(
+                name="👤 Trainer Info",
+                value=f"**Name:** {name}\n"
+                      f"**ID:** `{trainer_id}`\n"
+                      f"**Current Club:** {club_name}",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📈 Monthly Performance",
+                value=f"**Monthly Gain:** {monthly_gain:,} 👥\n"
+                      f"**Active Days:** {active_days} days\n"
+                      f"**Average Daily:** {avg_daily:,.0f} fans/day",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="📊 Career",
+                value=f"**Total Fans:** {total_fans:,} 👥",
+                inline=False
+            )
+            
+            embed.set_footer(text="Data source: uma.moe")
+            
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Verified trainer {trainer_id} ({name}) for user {interaction.user}")
+            
+        except Exception as e:
+            logger.error(f"Error in verify command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error during verification: {str(e)}")
+
     @app_commands.command(name="check_club", description="Show the current club status report from database (all members)")
     @app_commands.autocomplete(club=club_autocomplete)
     async def check_club(self, interaction: discord.Interaction, club: str):
