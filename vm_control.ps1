@@ -39,7 +39,13 @@ switch ($Action) {
 
         # Upload and deploy
         scp -i $SSH_KEY project.tar.gz "$User@$($IP):$RemotePath/"
-        ssh -i $SSH_KEY "$User@$IP" "cd $RemotePath && tar -xzf project.tar.gz && rm project.tar.gz && docker compose -f docker-compose.prod.yml up -d --build"
+        if (Test-Path .env.prod) {
+            scp -i $SSH_KEY .env.prod "$User@$($IP):$RemotePath/"
+            ssh -i $SSH_KEY "$User@$IP" "cd $RemotePath && tar -xzf project.tar.gz && rm project.tar.gz && mv .env.prod .env && docker compose -f docker-compose.prod.yml up -d --build"
+        } else {
+            Write-Host "⚠️  .env.prod not found! Skipping environment variable synchronization." -ForegroundColor Yellow
+            ssh -i $SSH_KEY "$User@$IP" "cd $RemotePath && tar -xzf project.tar.gz && rm project.tar.gz && docker compose -f docker-compose.prod.yml up -d --build"
+        }
         
         Remove-Item project.tar.gz
         Write-Host "✅ Deployment complete! Containers are restarting." -ForegroundColor Green
