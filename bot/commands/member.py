@@ -234,46 +234,47 @@ class MemberCommands(commands.Cog):
     @app_commands.command(name="my_status", description="View your own quota status")
     async def my_status(self, interaction: discord.Interaction):
         """View your own linked trainer status"""
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         
         try:
             user_link = await UserLink.get_by_discord_id(interaction.user.id)
             
             if not user_link:
                 await interaction.followup.send(
-                    "❌ You haven't linked a trainer yet. Use `/link_trainer` to get started!"
+                    "❌ You haven't linked a trainer yet. Use `/link_trainer` to get started!",
+                    ephemeral=True
                 )
                 return
             
             member = await Member.get_by_id(user_link.member_id)
-            await self._send_member_status(interaction, member)
+            await self._send_member_status(interaction, member, ephemeral=True)
             
         except Exception as e:
             logger.error(f"Error in my_status: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {str(e)}")
+            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
     
     @app_commands.command(name="member_status", description="View status of a specific member")
     async def member_status(self, interaction: discord.Interaction, trainer_name: str, club: str):
         """Get detailed status for a specific member"""
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         
         try:
             club_obj = await Club.get_by_name(club)
             if not club_obj:
-                await interaction.followup.send(f"❌ Club '{club}' not found")
+                await interaction.followup.send(f"❌ Club '{club}' not found", ephemeral=True)
                 return
             
             member = await Member.get_by_name(club_obj.club_id, trainer_name)
             
             if not member:
-                await interaction.followup.send(f"❌ Member '{trainer_name}' not found in {club}")
+                await interaction.followup.send(f"❌ Member '{trainer_name}' not found in {club}", ephemeral=True)
                 return
             
-            await self._send_member_status(interaction, member)
+            await self._send_member_status(interaction, member, ephemeral=True)
             
         except Exception as e:
             logger.error(f"Error in member_status: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {str(e)}")
+            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
     
     @app_commands.command(name="verify", description="Verify a trainer's stats and current club from uma.moe")
     @app_commands.describe(trainer_id="The 12-digit Trainer ID (Viewer ID) to check")
@@ -396,8 +397,9 @@ class MemberCommands(commands.Cog):
                     'last_month_rank': None # Cannot easily determine without more logic, but monthly_rank is most important
                 }
 
+            effective_quota = await QuotaRequirement.get_quota_for_date(club_obj.club_id, current_date)
             daily_reports = self.report_generator.create_daily_report(
-                club_obj.club_name, club_obj.daily_quota, status_summary, bombs_data, current_date,
+                club_obj.club_name, effective_quota, status_summary, bombs_data, current_date,
                 rank_data=rank_data, quota_period=club_obj.quota_period
             )
 
@@ -415,12 +417,12 @@ class MemberCommands(commands.Cog):
             logger.error(f"Error in check_club: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error generating report: {str(e)}")
     
-    async def _send_member_status(self, interaction: discord.Interaction, member: Member):
+    async def _send_member_status(self, interaction: discord.Interaction, member: Member, ephemeral: bool = False):
         """Send a detailed status embed for a member"""
         latest_history = await QuotaHistory.get_latest_for_member(member.member_id)
         
         if not latest_history:
-            await interaction.followup.send(f"No quota data found for {member.trainer_name}")
+            await interaction.followup.send(f"No quota data found for {member.trainer_name}", ephemeral=ephemeral)
             return
         
         active_bomb = await Bomb.get_active_for_member(member.member_id)
@@ -429,7 +431,7 @@ class MemberCommands(commands.Cog):
         from models import Club
         club = await Club.get_by_id(member.club_id)
         if club:
-            daily_quota = await QuotaRequirement.get_quota_for_date(club.club_id, date_class.today())
+            daily_quota = await QuotaRequirement.get_quota_for_date(club.club_id, latest_history.date)
         else:
             daily_quota = 1000000
         
@@ -475,6 +477,20 @@ class MemberCommands(commands.Cog):
             inline=True
         )
         
+        # Get total quota for the month
+        import calendar
+        from services.quota_calculator import QuotaCalculator
+        last_day = calendar.monthrange(latest_history.date.year, latest_history.date.month)[1]
+        end_of_month_date = latest_history.date.replace(day=last_day)
+        
+        total_month_quota = await QuotaCalculator.calculate_expected_fans(
+            club_id=member.club_id,
+            member_join_date=member.join_date,
+            current_date=end_of_month_date,
+            quota_period=club.quota_period if club else 'daily'
+        )
+        quota_left = max(0, total_month_quota - latest_history.cumulative_fans)
+
         # Progress bar
         if latest_history.expected_fans > 0:
             progress_pct = int((latest_history.cumulative_fans / latest_history.expected_fans) * 100)
@@ -555,15 +571,13 @@ class MemberCommands(commands.Cog):
             embed.add_field(name="\u200b", value="\u200b", inline=True)
         
         # Recommendations
-        if latest_history.deficit_surplus < 0:
-            deficit = abs(latest_history.deficit_surplus)
-            catchup_days = (club.bomb_countdown_days - latest_history.days_behind) if club else 7
-            recommended_daily = daily_quota + (deficit // max(1, catchup_days))
-            
+        if quota_left > 0:
+            days_remaining = max(1, last_day - latest_history.date.day)
+            monthly_pace = quota_left // days_remaining
             embed.add_field(
-                name="💡 To Catch Up",
-                value=f"Earn **{deficit:,}+ fans** total\n"
-                      f"Target: **{recommended_daily:,} fans/day**",
+                name="📅 Rest of Month Pace",
+                value=f"Target: **{monthly_pace:,} fans/day** (next {days_remaining} day{'s' if days_remaining != 1 else ''})\n"
+                      f"Month Left: **{quota_left:,} fans**",
                 inline=False
             )
         
@@ -668,7 +682,7 @@ class MemberCommands(commands.Cog):
         
         embed.set_footer(text=f"Last updated: {latest_history.date.strftime('%b %d, %Y')} • Today at {datetime.now().strftime('%I:%M %p')}")
         
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=ephemeral)
     
     # Apply autocomplete
     link_trainer.autocomplete('club')(club_autocomplete)
