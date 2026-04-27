@@ -60,6 +60,7 @@ jobs:
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
           LOG_LEVEL=${{ secrets.LOG_LEVEL }}
           USE_UMAMOE_API=true
+          CHRONO_API_KEY=${{ secrets.CHRONO_API_KEY }}
           ENVEOF"
 
           # Build and deploy
