@@ -22,7 +22,10 @@ switch ($Action) {
     }
     "status" {
         Write-Host "🔍 Checking Status for $VM..." -ForegroundColor Gray
-        az vm get-instance-view --resource-group $RG --name $VM --query "instanceView.statuses[1].displayStatus" -o tsv
+        $status = az vm get-instance-view --resource-group $RG --name $VM --query "instanceView.statuses[1].displayStatus" -o tsv
+        $size = az vm show --resource-group $RG --name $VM --query hardwareProfile.vmSize -o tsv
+        Write-Host "Status: $status" -ForegroundColor White
+        Write-Host "Size:   $size" -ForegroundColor White
     }
     "deploy" {
         Write-Host "📦 Packaging and Syncing code to $VM..." -ForegroundColor Magenta
