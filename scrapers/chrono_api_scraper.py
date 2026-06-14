@@ -128,11 +128,11 @@ class UmaGitHubScraper(BaseScraper):
                 if day_num <= max_day:
                     fans[day_num - 1] = cumulative
 
-            join_day = 1
-            for idx, val in enumerate(fans, start=1):
-                if val > 0:
-                    join_day = idx
-                    break
+            # Detect join day (first day they appear in history, even if fans were 0)
+            if day_values:
+                join_day = min(day_values.keys())
+            else:
+                join_day = 1
 
             if fans[-1] == 0:
                 continue
@@ -282,14 +282,17 @@ class UmaGitHubScraper(BaseScraper):
 
             viewer_id_str = str(viewer_id)
 
-            # Detect join day (first non-zero value) and starting lifetime fans
+            # Detect join day (first day they appear in the data, even if fans were 0)
             join_day = 1
             starting_lifetime_fans = 0
 
-            for idx, fans in enumerate(lifetime_fans[:current_day], start=1):
-                if fans > 0:
+            for idx, fans_val in enumerate(lifetime_fans[:current_day], start=1):
+                # Detect the first day they appear in the club data.
+                # If the API uses None/null for "not in club", we catch the first non-null.
+                # If they are present but inactive, fans_val will be 0, which is now accepted.
+                if fans_val is not None:
                     join_day = idx
-                    starting_lifetime_fans = fans
+                    starting_lifetime_fans = fans_val
                     break
 
             # Convert lifetime cumulative fans to monthly cumulative fans

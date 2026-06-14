@@ -3,11 +3,11 @@ name: Deploy UmaCore Bot to Azure VM
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "uma-moe" ]
+    branches: ["main", "uma-moe"]
     paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'terraform/**'
+      - "docs/**"
+      - "*.md"
+      - "terraform/**"
 
 jobs:
   deploy:

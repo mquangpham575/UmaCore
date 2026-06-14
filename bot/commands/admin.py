@@ -474,7 +474,7 @@ class AdminCommands(commands.Cog):
                 error_msg = (
                     f"❌ Failed to scrape data for **{club}** after {max_retries} attempts.\n\n"
                     f"**Last error:** {str(last_error)}\n\n"
-                    f"**Most likely cause:** Member history for today is not yet available on the website (typically appearing after the 10:15 UTC reset)."
+                    f"**Most likely cause:** Member history for today is not yet available on the website (typically appearing after the 10:05 UTC reset)."
                 )
                 await interaction.followup.send(error_msg)
                 return
@@ -510,6 +510,14 @@ class AdminCommands(commands.Cog):
                 club_obj.club_id, scraped_data, current_date, current_day,
                 quota_period=club_obj.quota_period
             )
+
+            # Auto-update spots tracking if active
+            try:
+                spot_cog = self.bot.get_cog("spot")
+                if spot_cog:
+                    await spot_cog.update_spots_for_club(club_obj.club_id, club_obj.club_name)
+            except Exception as e:
+                logger.error(f"Error auto-updating spots in force_check: {e}")
 
             # Bomb management
             newly_activated = []

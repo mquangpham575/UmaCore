@@ -398,6 +398,27 @@ class Database:
         DROP INDEX IF EXISTS members_trainer_id_key;
         CREATE UNIQUE INDEX IF NOT EXISTS members_trainer_id_club_unique 
             ON members(trainer_id, club_id) WHERE trainer_id IS NOT NULL;
+
+        -- Club spots table for tracking member spots
+        CREATE TABLE IF NOT EXISTS club_spots (
+            club_name VARCHAR(100) PRIMARY KEY,
+            member_count INTEGER NOT NULL DEFAULT 0,
+            max_members INTEGER NOT NULL DEFAULT 30,
+            pending_count INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
+        -- Migration: Add pending_count column if it doesn't exist
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name='club_spots' AND column_name='pending_count'
+            ) THEN
+                ALTER TABLE club_spots ADD COLUMN pending_count INTEGER NOT NULL DEFAULT 0;
+                RAISE NOTICE 'Added pending_count column to club_spots';
+            END IF;
+        END $$;
         """
         
         try:

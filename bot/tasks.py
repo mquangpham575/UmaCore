@@ -241,6 +241,14 @@ class BotTasks:
                         )
                         logger.info(f"✅ Data processed for {club.club_name}: {updated_members} members updated, {new_members} new members")
 
+                        # Auto-update spots tracking if active
+                        try:
+                            spot_cog = self.bot.get_cog("spot")
+                            if spot_cog:
+                                await spot_cog.update_spots_for_club(club.club_id, club.club_name)
+                        except Exception as e:
+                            logger.error(f"Error auto-updating spots for {club.club_name}: {e}")
+
                     except Exception as e:
                         logger.error(f"❌ Error processing scraped data for {club.club_name}: {e}", exc_info=True)
                         error_embed = self.report_generator.create_error_report(
@@ -377,6 +385,15 @@ class BotTasks:
                     logger.info(f"   • Bombs deactivated: {len(deactivated_bombs)}")
                     logger.info(f"   • Members to kick: {len(members_to_kick)}")
                     logger.info("=" * 80)
+
+                    # STEP 10: Pre-render and cache leaderboard images
+                    try:
+                        logger.info(f"🖼️ Pre-rendering and caching leaderboard images for {club.club_name}...")
+                        from bot.commands.member import pre_render_and_cache_leaderboard
+                        await pre_render_and_cache_leaderboard(self.bot, club_id=club.club_id)
+                        await pre_render_and_cache_leaderboard(self.bot, guild_id=club.guild_id)
+                    except Exception as e:
+                        logger.error(f"❌ Error pre-rendering leaderboard: {e}", exc_info=True)
 
             except Exception as e:
                 logger.error(f"Fatal error in daily check for {club.club_name}: {e}", exc_info=True)
