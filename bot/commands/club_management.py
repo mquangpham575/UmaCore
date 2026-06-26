@@ -449,6 +449,7 @@ class ClubManagementCommands(commands.Cog):
     ])
     async def edit_club(self, interaction: discord.Interaction,
                        club: str,
+                       new_name: str = None,
                        circle_id: str = None,
                        daily_quota: int = None,
                        quota_period: app_commands.Choice[str] = None,
@@ -486,6 +487,17 @@ class ClubManagementCommands(commands.Cog):
                 return
             
             updates = {}
+            if new_name is not None:
+                new_name_clean = new_name.strip()
+                if new_name_clean == "":
+                    await interaction.followup.send("❌ New club name cannot be empty.")
+                    return
+                # Check for duplicate
+                existing = await Club.get_by_name(new_name_clean)
+                if existing and existing.club_id != club_obj.club_id:
+                    await interaction.followup.send(f"❌ Club with name '{new_name_clean}' already exists.")
+                    return
+                updates['club_name'] = new_name_clean
             if circle_id is not None:
                 updates['circle_id'] = circle_id if circle_id != "" else None
             if daily_quota is not None:
@@ -530,7 +542,7 @@ class ClubManagementCommands(commands.Cog):
             
             embed = discord.Embed(
                 title="✅ Club Settings Updated",
-                description=f"Successfully updated **{club}**",
+                description=f"Successfully updated **{club_obj.club_name}**",
                 color=discord.Color.green(),
                 timestamp=discord.utils.utcnow()
             )
@@ -546,7 +558,9 @@ class ClubManagementCommands(commands.Cog):
 
             changes_text = []
             for key, value in updates.items():
-                if key == 'circle_id':
+                if key == 'club_name':
+                    changes_text.append(f"**Club Name:** {club} ➔ {value}")
+                elif key == 'circle_id':
                     if value:
                         source_desc = "Chrono (via circle_id)"
                         changes_text.append(f"**Circle ID:** {value} (Scraper: {source_desc})")

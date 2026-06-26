@@ -189,7 +189,7 @@ class Club:
         """Update club settings"""
         valid_fields = {'scrape_url', 'circle_id', 'daily_quota', 'quota_period', 'timezone',
                        'scrape_time', 'bomb_trigger_days', 'bomb_countdown_days', 'bombs_enabled',
-                       'report_channel_id', 'alert_channel_id', 'guild_id'}
+                       'report_channel_id', 'alert_channel_id', 'guild_id', 'club_name'}
 
         updates = {k: v for k, v in kwargs.items() if k in valid_fields}
         if not updates:
@@ -200,6 +200,19 @@ class Club:
             from datetime import time as time_class
             hour, minute = map(int, updates['scrape_time'].split(':'))
             updates['scrape_time'] = time_class(hour=hour, minute=minute)
+
+        # Sync rename with club_spots table if club_name is changed
+        if 'club_name' in updates and updates['club_name'] != self.club_name:
+            spot_query = """
+                UPDATE club_spots
+                SET club_name = $2
+                WHERE club_name = $1
+            """
+            try:
+                await db.execute(spot_query, self.club_name, updates['club_name'])
+                logger.info(f"Renamed club in club_spots from '{self.club_name}' to '{updates['club_name']}'")
+            except Exception as e:
+                logger.error(f"Failed to update club_spots rename from '{self.club_name}' to '{updates['club_name']}': {e}")
         
         set_clause = ', '.join([f"{k} = ${i+2}" for i, k in enumerate(updates.keys())])
         values = [self.club_id] + list(updates.values())
