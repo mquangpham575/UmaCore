@@ -7,6 +7,7 @@ from discord.ext import commands
 from datetime import date as date_class, datetime, timedelta
 import aiohttp
 import asyncio
+import os
 import io
 import logging
 
@@ -413,8 +414,13 @@ class MemberCommands(commands.Cog):
             
             url = f"https://uma.moe/api/v4/rankings/monthly?month={month}&year={year}&page=0&limit=100&query={trainer_id}&circle_name={trainer_id}"
             
+            headers = {}
+            api_key = os.getenv("UMAMOE_API_KEY")
+            if api_key:
+                headers["X-API-Key"] = api_key
+            
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=15) as response:
+                async with session.get(url, headers=headers, timeout=15) as response:
                     if response.status != 200:
                         await interaction.followup.send(f"❌ uma.moe API error (Status: {response.status})")
                         return
