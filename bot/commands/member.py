@@ -4,7 +4,7 @@ Member status and user linking commands
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import date as date_class, datetime, timedelta
+from datetime import datetime
 import aiohttp
 import asyncio
 import os
@@ -1058,7 +1058,6 @@ async def pre_render_and_cache_leaderboard(bot, club_id: str = None, guild_id: i
         from config.database import db
         import os
         import pytz
-        import io
         import asyncio
         from datetime import datetime
         

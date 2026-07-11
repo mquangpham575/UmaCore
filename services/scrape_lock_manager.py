@@ -1,7 +1,7 @@
 """
 Scrape lock manager to prevent concurrent scraping conflicts
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 import logging
@@ -125,7 +125,7 @@ class ScrapeLockManager:
     async def _cleanup_stale_locks():
         """Remove locks older than LOCK_TIMEOUT_MINUTES"""
         try:
-            timeout_threshold = datetime.now() - timedelta(minutes=ScrapeLockManager.LOCK_TIMEOUT_MINUTES)
+            timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=ScrapeLockManager.LOCK_TIMEOUT_MINUTES)
             
             query = """
                 DELETE FROM scrape_locks 

@@ -1,7 +1,6 @@
 """
 Chart commands for visualizing member fan progression
 """
-import calendar
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -10,9 +9,8 @@ import math
 import logging
 from datetime import date, datetime
 import pytz
-import aiohttp
 
-from models import Club, QuotaHistory, QuotaRequirement
+from models import Club, QuotaHistory
 from scrapers import UmaGitHubScraper
 
 

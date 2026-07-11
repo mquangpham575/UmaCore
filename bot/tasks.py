@@ -8,7 +8,7 @@ import logging
 import pytz
 import asyncio
 
-from models import Club, Member, ClubRankHistory, QuotaRequirement, QuotaHistory
+from models import Club, Member, QuotaRequirement, QuotaHistory
 from scrapers import UmaGitHubScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, NotificationService, ScrapeLockManager, ScrapeContext
 

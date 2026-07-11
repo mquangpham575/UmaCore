@@ -6,8 +6,6 @@ import logging
 import calendar
 import aiohttp
 import os
-import json
-import base64
 from datetime import datetime, date
 
 from scrapers.base_scraper import BaseScraper
@@ -47,7 +45,7 @@ class UmaGitHubScraper(BaseScraper):
                     return await response.json()
                 
                 if response.status == 403:
-                    logger.warning(f"Chrono API: 403 Forbidden. Check your CHRONO_API_KEY.")
+                    logger.warning("Chrono API: 403 Forbidden. Check your CHRONO_API_KEY.")
                 elif response.status == 404:
                     logger.info(f"Chrono API: No data found for circle {self.circle_id}")
                 else:

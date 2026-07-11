@@ -19,7 +19,9 @@ class QuotaCalculator:
     
     @staticmethod
     async def calculate_expected_fans(club_id: UUID, member_join_date: date,
-                                     current_date: date, quota_period: str = 'daily') -> int:
+                                     current_date: date, quota_period: str = 'daily',
+                                     pre_fetched_requirements: Optional[list] = None,
+                                     default_quota: Optional[int] = None) -> int:
         """
         Calculate expected cumulative fans based on days active in current month.
 
@@ -31,6 +33,8 @@ class QuotaCalculator:
             member_join_date: When the member joined the club
             current_date: The date the data belongs to (not necessarily today)
             quota_period: 'daily', 'weekly', or 'biweekly'
+            pre_fetched_requirements: Optional list of pre-fetched quota requirements
+            default_quota: Optional default daily quota for the club
 
         Returns:
             Expected cumulative fan count for this month only
@@ -47,9 +51,30 @@ class QuotaCalculator:
 
         day_count = (current_date - start_date).days + 1
         current_day = start_date
+
+        if pre_fetched_requirements is None or default_quota is None:
+            from models import Club
+            club = await Club.get_by_id(club_id)
+            default_quota = club.daily_quota if club else 1000000
+            
+            query = """
+                SELECT effective_date, daily_quota
+                FROM quota_requirements
+                WHERE club_id = $1 AND effective_date <= $2
+                ORDER BY effective_date ASC
+            """
+            rows = await db.fetch(query, club_id, current_date)
+            pre_fetched_requirements = [(r['effective_date'], r['daily_quota']) for r in rows]
+
         for _ in range(day_count):
-            period_quota = await QuotaRequirement.get_quota_for_date(club_id, current_day)
-            total_expected += period_quota / period_days
+            applicable_quota = default_quota
+            for req_date, quota_val in pre_fetched_requirements:
+                if req_date <= current_day:
+                    applicable_quota = quota_val
+                else:
+                    break
+            
+            total_expected += applicable_quota / period_days
             current_day += timedelta(days=1)
 
         result = round(total_expected)
@@ -190,6 +215,20 @@ class QuotaCalculator:
         scraped_trainer_ids = set(scraped_data.keys())
         await self._auto_deactivate_missing_members(club_id, scraped_trainer_ids)
         
+        # Pre-fetch default quota and custom requirements
+        from models import Club
+        club = await Club.get_by_id(club_id)
+        default_quota = club.daily_quota if club else 1000000
+        
+        query = """
+            SELECT effective_date, daily_quota
+            FROM quota_requirements
+            WHERE club_id = $1 AND effective_date <= $2
+            ORDER BY effective_date ASC
+        """
+        rows = await db.fetch(query, club_id, data_date)
+        pre_fetched_requirements = [(r['effective_date'], r['daily_quota']) for r in rows]
+
         # Process each member
         new_members = 0
         updated_members = 0
@@ -263,14 +302,22 @@ class QuotaCalculator:
             days_active = self.calculate_days_active_in_month(member.join_date, data_date)
             
             expected_fans = await self.calculate_expected_fans(
-                club_id, member.join_date, data_date, quota_period
+                club_id, member.join_date, data_date, quota_period,
+                pre_fetched_requirements=pre_fetched_requirements,
+                default_quota=default_quota
             )
             
             deficit_surplus = self.calculate_deficit_surplus(cumulative_fans, expected_fans)
 
             # Store history keyed to data_date
-            # Fetch current daily quota for the effort-based days_behind calculation
-            stored_quota = await QuotaRequirement.get_quota_for_date(club_id, data_date)
+            # Resolve current daily quota in-memory for the effort-based days_behind calculation
+            stored_quota = default_quota
+            for req_date, quota_val in pre_fetched_requirements:
+                if req_date <= data_date:
+                    stored_quota = quota_val
+                else:
+                    break
+            
             days_behind = await self._calculate_days_behind(member.member_id, deficit_surplus, data_date, stored_quota)
             
             # Calculate daily gain from the JSON history array (ensures consistency with raw data)

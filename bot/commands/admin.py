@@ -5,14 +5,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from datetime import datetime
-import json
 import logging
 import pytz
 import asyncio
 
 from scrapers import UmaGitHubScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, MonthlyInfoService
-from models import Member, QuotaRequirement, Club, ClubRankHistory
+from models import Member, QuotaRequirement, Club
 from bot.decorators import is_admin_or_authorized
 
 logger = logging.getLogger(__name__)

@@ -4,7 +4,6 @@ from discord.ext import commands
 import logging
 import asyncio
 import aiohttp
-from datetime import datetime
 
 from config.database import db
 from bot.decorators import is_admin_or_authorized
