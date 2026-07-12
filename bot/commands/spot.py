@@ -425,10 +425,9 @@ class SpotCommands(commands.GroupCog, name="spot"):
                 return
             import os
             api_key = os.getenv("UMAMOE_API_KEY")
-            chrono_token = os.getenv("CHRONO_API_KEY")
-            if not api_key and not chrono_token:
+            if not api_key:
                 await interaction.followup.send(
-                    "❌ Neither `UMAMOE_API_KEY` nor `CHRONO_API_KEY` is configured in the environment.",
+                    "❌ `UMAMOE_API_KEY` is not configured in the environment.",
                     ephemeral=True
                 )
                 return
@@ -438,9 +437,7 @@ class SpotCommands(commands.GroupCog, name="spot"):
 
             async with aiohttp.ClientSession() as session:
                 for club in clubs_to_sync:
-                    # Hybrid Fetch: prioritize uma.moe API
                     member_count = None
-                    try_chrono = True
                     
                     if api_key:
                         url = f"https://uma.moe/api/v4/circles?circle_id={club.circle_id}"
@@ -455,9 +452,7 @@ class SpotCommands(commands.GroupCog, name="spot"):
                                     circle_data = data.get("circle")
                                     if circle_data and isinstance(circle_data, dict):
                                         member_count = circle_data.get("member_count")
-                                        if member_count is not None:
-                                            try_chrono = False  # Success!
-                                        else:
+                                        if member_count is None:
                                             logger.warning(f"uma.moe API returned null member_count for circle {club.circle_id}")
                                     else:
                                         logger.warning(f"uma.moe API response invalid structure for circle {club.circle_id}")
@@ -466,37 +461,8 @@ class SpotCommands(commands.GroupCog, name="spot"):
                         except Exception as e:
                             logger.error(f"Error querying uma.moe for circle {club.circle_id}: {e}")
 
-                    # Fallback to Chrono API if primary failed and Chrono token is available
-                    if try_chrono:
-                        if chrono_token:
-                            url = f"https://api.chronogenesis.net/club_profile?circle_id={club.circle_id}"
-                            headers = {
-                                "Authorization": f"{chrono_token}",
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                            }
-                            try:
-                                async with session.get(url, headers=headers, timeout=15) as response:
-                                    if response.status == 200:
-                                        data = await response.json()
-                                        club_list = data.get("club")
-                                        if club_list and isinstance(club_list, list):
-                                            member_count = club_list[0].get("member_num")
-                                        else:
-                                            failed.append(f"**{club.club_name}** (Chrono: No club data)")
-                                            continue
-                                    else:
-                                        failed.append(f"**{club.club_name}** (Chrono HTTP {response.status})")
-                                        continue
-                            except Exception as e:
-                                logger.error(f"Error querying Chrono API for circle {club.circle_id}: {e}")
-                                failed.append(f"**{club.club_name}** (Chrono: {str(e)})")
-                                continue
-                        else:
-                            failed.append(f"**{club.club_name}** (uma.moe failed, Chrono API key missing)")
-                            continue
-
                     if member_count is None:
-                        failed.append(f"**{club.club_name}** (Failed to retrieve member count)")
+                        failed.append(f"**{club.club_name}** (uma.moe failed)")
                         continue
 
                     # Update or Insert, max_members is 30, preserve pending_count (but auto-clear/cap)
