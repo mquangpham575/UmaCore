@@ -512,11 +512,42 @@ class SpotCommands(commands.GroupCog, name="spot"):
 
             matched_name = existing['club_name']
 
-            active_count_row = await db.fetchrow(
-                "SELECT COUNT(*) as cnt FROM members WHERE club_id = $1 AND is_active = TRUE",
-                club_id
-            )
-            active_count = active_count_row['cnt'] if active_count_row else 0
+            # Try to query the uma.moe API first
+            member_count = None
+            try:
+                from models.club import Club
+                club_obj = await Club.get_by_id(club_id)
+                circle_id = club_obj.circle_id if club_obj else None
+                
+                import os
+                api_key = os.getenv("UMAMOE_API_KEY")
+                
+                if api_key and circle_id and circle_id.isdigit():
+                    url = f"https://uma.moe/api/v4/circles?circle_id={circle_id}"
+                    headers = {
+                        "X-API-Key": api_key,
+                        "accept": "application/json"
+                    }
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url, headers=headers, timeout=15) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                circle_data = data.get("circle")
+                                if circle_data and isinstance(circle_data, dict):
+                                    member_count = circle_data.get("member_count")
+            except Exception as e:
+                logger.error(f"Error querying uma.moe for scheduled spot sync on circle {club_name}: {e}")
+
+            # Fallback to local database active member count if API fails or circle_id is missing
+            if member_count is None:
+                active_count_row = await db.fetchrow(
+                    "SELECT COUNT(*) as cnt FROM members WHERE club_id = $1 AND is_active = TRUE",
+                    club_id
+                )
+                member_count = active_count_row['cnt'] if active_count_row else 0
+                logger.info(f"Auto-update spots fallback for {matched_name}: counted {member_count} active database members")
+            else:
+                logger.info(f"Auto-updated spots for {matched_name} to {member_count}/30 using uma.moe API")
 
             query = """
                 UPDATE club_spots
@@ -528,8 +559,7 @@ class SpotCommands(commands.GroupCog, name="spot"):
                     updated_at = NOW()
                 WHERE club_name = $1
             """
-            await db.execute(query, matched_name, int(active_count))
-            logger.info(f"Auto-updated spots for {matched_name} to {active_count}/30 (active database count)")
+            await db.execute(query, matched_name, int(member_count))
             
             await self._update_spots_message()
             return True
