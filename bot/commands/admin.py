@@ -169,6 +169,15 @@ class AdminCommands(commands.Cog):
             if updated:
                 await interaction.followup.send("✅ Monthly info board auto-updated!", ephemeral=True)
 
+            # Trigger GitHub Actions Daily Tracker force update
+            try:
+                from utils.github_trigger import trigger_tracker_force_update
+                triggered = await trigger_tracker_force_update()
+                if triggered:
+                    await interaction.followup.send("⏳ GitHub Actions tracker update triggered!", ephemeral=True)
+            except Exception as e:
+                logger.error(f"Failed to trigger GitHub Action: {e}")
+
         except Exception as e:
             logger.error(f"Error in set_quota: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
@@ -369,6 +378,15 @@ class AdminCommands(commands.Cog):
             logger.info(f"Quota entry deleted for {club} ({amount:,} on {date}) by {interaction.user}")
 
             await self._update_monthly_info_board(club_obj, effective_date)
+
+            # Trigger GitHub Actions Daily Tracker force update
+            try:
+                from utils.github_trigger import trigger_tracker_force_update
+                triggered = await trigger_tracker_force_update()
+                if triggered:
+                    await interaction.followup.send("⏳ GitHub Actions tracker update triggered!", ephemeral=True)
+            except Exception as e:
+                logger.error(f"Failed to trigger GitHub Action: {e}")
 
         except Exception as e:
             logger.error(f"Error in delete_quota: {e}", exc_info=True)

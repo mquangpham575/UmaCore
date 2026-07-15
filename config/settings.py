@@ -13,6 +13,10 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
 # Database Configuration
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# GitHub Action Configuration
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "mquangpham575/Uma_Club_Fan_Tracking")
+
 # Scraping Configuration
 SCRAPE_TIMEOUT = 90  # seconds
 SCRAPE_RETRY_ATTEMPTS = 3
