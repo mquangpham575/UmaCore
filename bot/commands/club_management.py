@@ -602,8 +602,8 @@ class ClubManagementCommands(commands.Cog):
             await interaction.followup.send(embed=embed)
             logger.info(f"Club '{club}' settings updated by {interaction.user}: {updates}")
 
-            # Trigger GitHub Actions Daily Tracker force update if daily_quota or quota_period is updated
-            if 'daily_quota' in updates or 'quota_period' in updates:
+            # Trigger GitHub Actions Daily Tracker force update if daily_quota, quota_period, or club_name is updated
+            if 'daily_quota' in updates or 'quota_period' in updates or 'club_name' in updates:
                 try:
                     from utils.github_trigger import trigger_tracker_force_update
                     triggered = await trigger_tracker_force_update()
