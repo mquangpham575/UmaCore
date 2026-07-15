@@ -601,6 +601,16 @@ class ClubManagementCommands(commands.Cog):
             
             await interaction.followup.send(embed=embed)
             logger.info(f"Club '{club}' settings updated by {interaction.user}: {updates}")
+
+            # Trigger GitHub Actions Daily Tracker force update if daily_quota or quota_period is updated
+            if 'daily_quota' in updates or 'quota_period' in updates:
+                try:
+                    from utils.github_trigger import trigger_tracker_force_update
+                    triggered = await trigger_tracker_force_update()
+                    if triggered:
+                        await interaction.followup.send("⏳ GitHub Actions tracker update triggered!", ephemeral=True)
+                except Exception as e:
+                    logger.error(f"Failed to trigger GitHub Action: {e}")
             
         except Exception as e:
             logger.error(f"Error in edit_club: {e}", exc_info=True)
