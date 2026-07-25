@@ -335,6 +335,7 @@ class BotTasks:
                             current_day=current_day
                         )
 
+                        await report_channel.send(f"*(You can see your own Status with /my_status with additional information.)*")
                         for embed in daily_reports:
                             await report_channel.send(embed=embed)
 

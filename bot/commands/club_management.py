@@ -783,7 +783,7 @@ class ClubManagementCommands(commands.Cog):
             # Prepend a notice that this is from DB
             await interaction.followup.send(
                 f"📊 **Database Status Report for {club}**\n"
-                f"*(Note: This uses the most recent data already in the database. No new scraping was performed.)*"
+                f"*(You can see your own Status with /my_status with additional information.)*"
             )
             
             for embed in daily_reports:

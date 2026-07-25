@@ -529,6 +529,10 @@ class MemberCommands(commands.Cog):
 
             # Send all report embeds in the interaction reply
             if daily_reports:
+                await interaction.followup.send(
+                    f"📊 **Database Status Report for {club_obj.club_name}**\n"
+                    f"*(You can see your own Status with /my_status with additional information.)*"
+                )
                 # First embed as followup, others as followups too
                 for i, embed in enumerate(daily_reports):
                     await interaction.followup.send(embed=embed)
