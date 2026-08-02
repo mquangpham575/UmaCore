@@ -47,6 +47,7 @@ class SpotCommands(commands.GroupCog, name="spot"):
                     cs.pending_count
                 FROM club_spots cs
                 LEFT JOIN clubs c ON UPPER(cs.club_name) = UPPER(c.club_name)
+                WHERE c.is_active IS NOT FALSE
                 ORDER BY COALESCE(c.daily_quota, 0) DESC, cs.club_name ASC
             """
             rows = await db.fetch(query)

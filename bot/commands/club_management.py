@@ -276,6 +276,14 @@ class ClubManagementCommands(commands.Cog):
             # Delete the club
             await club_obj.delete()
             
+            # Refresh spots status list message
+            try:
+                spot_cog = self.bot.get_cog("spot")
+                if spot_cog:
+                    await spot_cog._update_spots_message()
+            except Exception as e:
+                logger.error(f"Error updating spots message after deleting club: {e}")
+            
             # Success embed
             embed = discord.Embed(
                 title="✅ Club Deleted",
@@ -315,6 +323,14 @@ class ClubManagementCommands(commands.Cog):
                 return
             
             await club_obj.activate()
+            
+            # Refresh spots status list message
+            try:
+                spot_cog = self.bot.get_cog("spot")
+                if spot_cog:
+                    await spot_cog._update_spots_message()
+            except Exception as e:
+                logger.error(f"Error updating spots message after activating club: {e}")
             
             embed = discord.Embed(
                 title="✅ Club Reactivated",
@@ -360,6 +376,14 @@ class ClubManagementCommands(commands.Cog):
                 return
             
             await club_obj.deactivate()
+            
+            # Refresh spots status list message
+            try:
+                spot_cog = self.bot.get_cog("spot")
+                if spot_cog:
+                    await spot_cog._update_spots_message()
+            except Exception as e:
+                logger.error(f"Error updating spots message after deactivating club: {e}")
             
             embed = discord.Embed(
                 title="✅ Club Deactivated",

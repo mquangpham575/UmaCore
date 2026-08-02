@@ -305,6 +305,11 @@ class Club:
         Permanently delete club and all associated data.
         Cascades to members, quota_history, bombs, quota_requirements, scrape_locks.
         """
+        try:
+            await db.execute("DELETE FROM club_spots WHERE UPPER(club_name) = $1", self.club_name.upper())
+        except Exception as e:
+            logger.error(f"Failed to delete {self.club_name} from club_spots during club deletion: {e}")
+
         query = "DELETE FROM clubs WHERE club_id = $1"
         await db.execute(query, self.club_id)
         logger.warning(f"Permanently deleted club: {self.club_name} (club_id: {self.club_id})")
