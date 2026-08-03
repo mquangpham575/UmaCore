@@ -13,6 +13,7 @@ import logging
 
 from models import Member, QuotaHistory, Bomb, UserLink, Club, QuotaRequirement, ClubRankHistory
 from services import QuotaCalculator, BombManager, ReportGenerator
+import unicodedata
 import pytz
 
 logger = logging.getLogger(__name__)
@@ -144,8 +145,43 @@ class MemberCommands(commands.Cog):
         except Exception as e:
             logger.error(f"Error in club autocomplete: {e}")
             return []
+
+    async def trainer_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for trainer names matching user input (NFKC normalized)"""
+        try:
+            club_name = getattr(interaction.namespace, 'club', None)
+            members = []
+            if club_name:
+                club_obj = await Club.get_by_name(club_name)
+                if club_obj:
+                    members = await Member.get_all_active(club_obj.club_id)
+            if not members:
+                club_names = await Club.get_names_for_guild(interaction.guild_id)
+                for c_name in club_names:
+                    c_obj = await Club.get_by_name(c_name)
+                    if c_obj:
+                        c_mems = await Member.get_all_active(c_obj.club_id)
+                        members.extend(c_mems)
+
+            curr_norm = unicodedata.normalize('NFKC', current).strip().casefold()
+            choices = []
+            seen = set()
+            for m in members:
+                if m.trainer_name in seen:
+                    continue
+                m_norm = unicodedata.normalize('NFKC', m.trainer_name).strip().casefold()
+                if curr_norm in m_norm or not current:
+                    choices.append(app_commands.Choice(name=m.trainer_name, value=m.trainer_name))
+                    seen.add(m.trainer_name)
+                    if len(choices) >= 25:
+                        break
+            return choices
+        except Exception as e:
+            logger.error(f"Error in trainer autocomplete: {e}")
+            return []
     
     @app_commands.command(name="link_trainer", description="Link your Discord account to your trainer")
+    @app_commands.autocomplete(club=club_autocomplete, trainer_name=trainer_autocomplete)
     async def link_trainer(self, interaction: discord.Interaction, trainer_name: str, club: str):
         """Link your Discord account to a trainer"""
         await interaction.response.defer(ephemeral=True)

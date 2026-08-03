@@ -52,7 +52,9 @@ class Member:
     
     @classmethod
     async def get_by_name(cls, club_id: UUID, trainer_name: str) -> Optional['Member']:
-        """Get member by trainer name within a club (case-insensitive)"""
+        """Get member by trainer name within a club (case-insensitive with NFKC unicode normalization)"""
+        import unicodedata
+
         query = """
             SELECT member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen, monthly_best_day
             FROM members
@@ -61,6 +63,19 @@ class Member:
         row = await db.fetchrow(query, club_id, trainer_name)
         if row:
             return cls(**dict(row))
+
+        # Fallback: Unicode NFKC normalization matching (full-width vs standard ASCII)
+        target_norm = unicodedata.normalize('NFKC', trainer_name).strip().casefold()
+        all_query = """
+            SELECT member_id, club_id, trainer_id, trainer_name, join_date, is_active, manually_deactivated, last_seen, monthly_best_day
+            FROM members
+            WHERE club_id = $1
+        """
+        rows = await db.fetch(all_query, club_id)
+        for r in rows:
+            if unicodedata.normalize('NFKC', r['trainer_name']).strip().casefold() == target_norm:
+                return cls(**dict(r))
+
         return None
     
     @classmethod
