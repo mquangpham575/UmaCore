@@ -2,7 +2,7 @@
 Quota calculation service with multi-club support
 """
 from datetime import date, timedelta
-from typing import Dict, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple, Set
 from uuid import UUID
 import logging
 import calendar
@@ -130,7 +130,12 @@ class QuotaCalculator:
     def _detect_monthly_reset_from_scraped(self, scraped_data: Dict[str, Dict], 
                                            previous_totals: Dict[str, int]) -> bool:
         """
-        Detect if a monthly reset has occurred by comparing scraped data to previous totals
+        Detect if a monthly reset has occurred by comparing scraped data to previous totals.
+
+        A monthly reset drops everyone's fans to ~0, so it is only treated as a reset
+        when the majority (>50%) of members with previous totals dropped below half of
+        them. A single member dipping (left the club, stopped playing, bad scrape) must
+        not wipe the whole club's history.
         """
         if not previous_totals:
             logger.info("No previous data found, skipping reset detection")
@@ -140,22 +145,29 @@ class QuotaCalculator:
             logger.warning("No scraped data, cannot detect reset")
             return False
         
-        # Check if any member has significantly lower fans than before
-        for key, member_data in scraped_data.items():
-            current_fans = member_data["fans"][-1] if member_data["fans"] else 0
-            
-            if key in previous_totals:
-                previous_fans = previous_totals[key]
-                
-                # If current count is less than 50% of previous, it's a reset
-                if current_fans > 0 and current_fans < previous_fans * 0.5:
-                    logger.warning(
-                        f"Monthly reset detected: {member_data['name']} went from "
-                        f"{previous_fans:,} to {current_fans:,} fans"
-                    )
-                    return True
+        dropped: List[str] = []
+        compared = 0
         
-        return False
+        for key, member_data in scraped_data.items():
+            if key not in previous_totals:
+                continue
+            compared += 1
+            current_fans = member_data["fans"][-1] if member_data["fans"] else 0
+            previous_fans = previous_totals[key]
+            
+            if current_fans > 0 and current_fans < previous_fans * 0.5:
+                dropped.append(member_data["name"])
+        
+        if not compared:
+            return False
+        
+        is_reset = len(dropped) / compared > 0.5
+        if is_reset:
+            logger.warning(
+                f"Monthly reset detected: {len(dropped)}/{compared} members dropped "
+                f"below 50% of previous fans ({', '.join(dropped)})"
+            )
+        return is_reset
     
     async def _auto_deactivate_missing_members(self, club_id: UUID, scraped_trainer_ids: Set[str]):
         """Auto-deactivate members who are no longer in the scraped data"""
@@ -274,12 +286,14 @@ class QuotaCalculator:
                 if member.trainer_name != trainer_name:
                     await member.update_name(trainer_name)
                 
-                # SELF-CORRECTION: If the scraper finds an EARLIER join date, update the DB
-                # (This fixes members whose join dates were "slipped" by previous scraper bugs)
-                if scraped_join_date < member.join_date:
+                # SELF-CORRECTION: When join_day is derived from the profile's
+                # authoritative join_time, keep the DB in sync (fixes dates that were
+                # mis-set by the previous history-backfill join-day bug).
+                if member_data.get("join_day_reliable") and scraped_join_date != member.join_date:
                     old_date = member.join_date
                     await member.update_join_date(scraped_join_date)
                     member.join_date = scraped_join_date # Update local object for subsequent calculations
+                    logger.info(f"Corrected join date for {trainer_name}: {old_date} -> {scraped_join_date}")
                     logger.info(f"Corrected join date for {trainer_name}: {old_date} -> {scraped_join_date}")
 
                 # Reactivate if previously auto-deactivated

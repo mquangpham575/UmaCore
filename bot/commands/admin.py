@@ -104,10 +104,6 @@ class AdminCommands(commands.Cog):
                 await interaction.followup.send("❌ Quota amount must be positive")
                 return
 
-            if amount > 10_000_000:
-                await interaction.followup.send("❌ Quota amount seems unreasonably high (>10M). Please check your input.")
-                return
-
             club_tz = pytz.timezone(club_obj.timezone)
             current_datetime = datetime.now(club_tz)
             current_date = current_datetime.date()

@@ -395,6 +395,9 @@ class Database:
             ON user_links(member_id);
         
         -- Unique INDEX for trainer_id per club
+        -- Drop the legacy global-unique index via its constraint if it exists; DROP INDEX alone
+        -- errors when the index is backed by a UNIQUE constraint.
+        ALTER TABLE members DROP CONSTRAINT IF EXISTS members_trainer_id_key;
         DROP INDEX IF EXISTS members_trainer_id_key;
         CREATE UNIQUE INDEX IF NOT EXISTS members_trainer_id_club_unique 
             ON members(trainer_id, club_id) WHERE trainer_id IS NOT NULL;

@@ -57,6 +57,23 @@ class UmaGitHubScraper(BaseScraper):
             logger.error(f"Error fetching from Chrono API: {e}")
             return None
 
+    def _join_day_from_join_time(self, join_time: Optional[str]) -> Optional[int]:
+        """Resolve the join_time from the profile into a day within the fetched month.
+
+        Returns None when join_time is missing or unparseable (join day unknown).
+        Members who joined in a previous month are treated as day 1 (present from
+        the start of the current month).
+        """
+        if not join_time:
+            return None
+        try:
+            joined = datetime.fromisoformat(join_time)
+        except ValueError:
+            return None
+        if (joined.year, joined.month) != (self._fetched_year, self._fetched_month):
+            return 1
+        return joined.day
+
     def _parse_tracker_raw_data(self, raw_data: dict) -> Dict[str, Dict]:
         """Parse raw JSON from Chrono API (Same format as tracking exports)"""
         profile = raw_data.get("club_friend_profile") or []
@@ -83,11 +100,14 @@ class UmaGitHubScraper(BaseScraper):
             self._fetched_year, self._fetched_month = now.year, now.month
 
         names_by_id: Dict[str, str] = {}
+        join_time_by_id: Dict[str, str] = {}
         for p in profile:
             vid = p.get("friend_viewer_id")
             if vid is None:
                 continue
             names_by_id[str(vid)] = p.get("name") or f"Member {vid}"
+            if p.get("join_time"):
+                join_time_by_id[str(vid)] = p["join_time"]
 
         by_member: Dict[str, Dict[int, int]] = {}
         max_day = 1
@@ -126,11 +146,10 @@ class UmaGitHubScraper(BaseScraper):
                 if day_num <= max_day:
                     fans[day_num - 1] = cumulative
 
-            # Detect join day (first day they appear in history, even if fans were 0)
-            if day_values:
-                join_day = min(day_values.keys())
-            else:
-                join_day = 1
+            # Join day comes from the profile's join_time (authoritative). Using the
+            # history backfill here is wrong: Chrono lists every current member from
+            # day 1 of the month, so mid-month joiners would all appear to join on day 1.
+            join_day = self._join_day_from_join_time(join_time_by_id.get(trainer_id))
 
             if fans[-1] == 0:
                 continue
@@ -139,7 +158,8 @@ class UmaGitHubScraper(BaseScraper):
                 "name": names_by_id.get(trainer_id, f"Member {trainer_id}"),
                 "trainer_id": trainer_id,
                 "fans": fans,
-                "join_day": join_day,
+                "join_day": join_day if join_day is not None else 1,
+                "join_day_reliable": join_day is not None,
             }
 
         logger.info(
