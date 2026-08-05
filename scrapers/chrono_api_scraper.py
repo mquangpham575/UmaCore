@@ -6,7 +6,7 @@ import logging
 import calendar
 import aiohttp
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from scrapers.base_scraper import BaseScraper
 
@@ -60,19 +60,25 @@ class UmaGitHubScraper(BaseScraper):
     def _join_day_from_join_time(self, join_time: Optional[str]) -> Optional[int]:
         """Resolve the join_time from the profile into a day within the fetched month.
 
+        Chrono timestamps are JST (Asia/Tokyo). The bot's date model is UTC, so the
+        join_time is converted to UTC before extracting the day. E.g. a join_time of
+        2026-08-02T00:25:15 JST is 2026-08-01 15:25 UTC -> join day 1.
+
         Returns None when join_time is missing or unparseable (join day unknown).
-        Members who joined in a previous month are treated as day 1 (present from
-        the start of the current month).
+        Members who joined in a previous month (in UTC) are treated as day 1 (present
+        from the start of the current month).
         """
         if not join_time:
             return None
         try:
-            joined = datetime.fromisoformat(join_time)
+            joined_jst = datetime.fromisoformat(join_time)
         except ValueError:
             return None
-        if (joined.year, joined.month) != (self._fetched_year, self._fetched_month):
+        # JST is fixed UTC+9 (no DST). The bot's date model is UTC.
+        joined_utc = joined_jst - timedelta(hours=9)
+        if (joined_utc.year, joined_utc.month) != (self._fetched_year, self._fetched_month):
             return 1
-        return joined.day
+        return joined_utc.day
 
     def _parse_tracker_raw_data(self, raw_data: dict) -> Dict[str, Dict]:
         """Parse raw JSON from Chrono API (Same format as tracking exports)"""
