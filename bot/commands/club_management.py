@@ -19,6 +19,36 @@ logger = logging.getLogger(__name__)
 AUTHOR_ID = 139769063948681217
 
 
+class ConfirmClubDeletionView(discord.ui.View):
+    """UI view for confirming permanent club deletion with buttons."""
+    
+    def __init__(self, author_id: int, club_name: str, timeout: float = 60.0):
+        super().__init__(timeout=timeout)
+        self.author_id = author_id
+        self.club_name = club_name
+        self.confirmed: bool | None = None
+
+    @discord.ui.button(label="Permanently Delete", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle deletion confirmation button press."""
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("❌ You are not authorized to confirm this deletion.", ephemeral=True)
+            return
+        self.confirmed = True
+        self.stop()
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle deletion cancellation button press."""
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("❌ You are not authorized to cancel this deletion.", ephemeral=True)
+            return
+        self.confirmed = False
+        self.stop()
+        await interaction.response.defer()
+
+
 class ClubManagementCommands(commands.Cog):
     """Commands for managing club registrations"""
     
@@ -251,25 +281,30 @@ class ClubManagementCommands(commands.Cog):
             warning_embed.add_field(
                 name="⚠️ This action is irreversible",
                 value="**This cannot be undone.** All data will be permanently lost.\n\n"
-                      f"Reply with `confirm delete {club}` within 30 seconds to proceed.",
+                      "Click **Permanently Delete** below within 60 seconds to proceed.",
                 inline=False
             )
             
             warning_embed.set_footer(text=f"Requested by {interaction.user}")
             
-            await interaction.followup.send(embed=warning_embed)
+            view = ConfirmClubDeletionView(author_id=interaction.user.id, club_name=club, timeout=60.0)
+            msg = await interaction.followup.send(embed=warning_embed, view=view)
             
-            # Wait for confirmation
-            def check(m):
-                return (m.author.id == interaction.user.id and 
-                       m.channel.id == interaction.channel.id and
-                       m.content.strip().lower() == f"confirm delete {club.lower()}")
+            timed_out = await view.wait()
+            
+            # Disable buttons after interaction
+            for item in view.children:
+                item.disabled = True
             
             try:
-                await self.bot.wait_for('message', check=check, timeout=30.0)
-            except asyncio.TimeoutError:
+                await msg.edit(view=view)
+            except Exception:
+                pass
+            
+            if timed_out or not view.confirmed:
+                reason = "confirmation timed out" if timed_out else "cancelled by user"
                 await interaction.followup.send(
-                    f"⏰ Deletion cancelled - confirmation timed out for **{club}**"
+                    f"⏰ Deletion cancelled ({reason}) for **{club}**"
                 )
                 return
             
