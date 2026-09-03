@@ -563,7 +563,22 @@ class ClubManagementCommands(commands.Cog):
                 deactivated_count = await Bomb.deactivate_all(club_obj.club_id, date.today())
 
             await club_obj.update_settings(**updates)
-            
+
+            # If daily_quota was changed, write a quota_requirement effective today
+            # so the change actually takes effect (matches /quota semantics).
+            # Without this, existing quota_requirements rows shadow the club default
+            # and the edit appears to do nothing.
+            if 'daily_quota' in updates:
+                from models import QuotaRequirement
+                club_tz = pytz.timezone(club_obj.timezone)
+                today = datetime.now(club_tz).date()
+                await QuotaRequirement.create(
+                    club_id=club_obj.club_id,
+                    effective_date=today,
+                    daily_quota=updates['daily_quota'],
+                    set_by=str(interaction.user)
+                )
+
             embed = discord.Embed(
                 title="✅ Club Settings Updated",
                 description=f"Successfully updated **{club_obj.club_name}**",

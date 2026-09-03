@@ -4,7 +4,7 @@ Member status and user linking commands
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import aiohttp
 import asyncio
 import os
@@ -40,6 +40,112 @@ class CachedDiscordUser:
     def with_format(self, format: str):
         """Mock method for compatibility with discord.Asset.with_format."""
         return self
+
+
+async def fetch_and_build_leaderboard_data(
+    bot,
+    guild: discord.Guild | None,
+    active_clubs: list,
+    club_names_map: dict,
+    month_start: date,
+    month_end: date
+) -> list[dict]:
+    # Intent: Query active members, fetch current-month cumulative fans, resolve Discord avatars, and format leaderboard rows
+    from config.database import db
+    import asyncio
+    import time
+    
+    club_ids = [c.club_id for c in active_clubs]
+    query = """
+        WITH latest_history AS (
+            SELECT DISTINCT ON (member_id) member_id, cumulative_fans, expected_fans, deficit_surplus, date, days_behind
+            FROM quota_history
+            WHERE club_id = ANY($1::uuid[])
+              AND date >= $2 AND date <= $3
+            ORDER BY member_id, date DESC
+        )
+        SELECT ul.discord_user_id, m.member_id, m.trainer_name, m.trainer_id, m.club_id,
+               lh.cumulative_fans, lh.expected_fans, lh.deficit_surplus, lh.date, lh.days_behind,
+               b.is_active as is_bomb
+        FROM members m
+        LEFT JOIN user_links ul ON m.member_id = ul.member_id
+        LEFT JOIN latest_history lh ON m.member_id = lh.member_id
+        LEFT JOIN bombs b ON m.member_id = b.member_id AND b.is_active = TRUE
+        WHERE m.club_id = ANY($1::uuid[]) AND m.is_active = TRUE
+        ORDER BY COALESCE(lh.cumulative_fans, 0) DESC, m.trainer_name ASC
+    """
+    
+    rows = await db.fetch(query, club_ids, month_start, month_end)
+    if not rows:
+        return []
+
+    fetch_sem = asyncio.Semaphore(3)
+    async def resolve_user(row):
+        discord_user_id = row['discord_user_id']
+        if not discord_user_id:
+            return row, None
+        now = time.time()
+        
+        # Check cache first
+        if discord_user_id in _discord_user_cache:
+            cached_name, cached_avatar, expires_at = _discord_user_cache[discord_user_id]
+            if now < expires_at:
+                if cached_name is None:
+                    return row, None
+                return row, CachedDiscordUser(cached_name, cached_avatar)
+        
+        user = guild.get_member(discord_user_id) if guild else None
+        if not user:
+            async with fetch_sem:
+                await asyncio.sleep(0.1)
+                try:
+                    user = await guild.fetch_member(discord_user_id) if guild else None
+                except Exception:
+                    try:
+                        user = await bot.fetch_user(discord_user_id)
+                    except Exception:
+                        user = None
+        
+        if user:
+            username = user.name
+            avatar_url = user.display_avatar.with_format("webp").url if user.display_avatar else None
+            _discord_user_cache[discord_user_id] = (username, avatar_url, now + 86400) # Cache successes for 24 hours
+            return row, CachedDiscordUser(username, avatar_url)
+        else:
+            _discord_user_cache[discord_user_id] = (None, None, now + 3600) # Cache failures for 1 hour
+            return row, None
+
+    tasks = [resolve_user(row) for row in rows]
+    resolved_results = await asyncio.gather(*tasks)
+
+    leaderboard_data = []
+    for row, user in resolved_results:
+        if user:
+            if len(active_clubs) > 1:
+                trainer_label = f"{row['trainer_name']} ({club_names_map.get(row['club_id'], 'Unknown')})"
+            else:
+                trainer_label = row['trainer_name']
+            username = f"@{user.name}"
+            avatar_url = user.display_avatar.url
+        else:
+            if len(active_clubs) > 1:
+                trainer_label = f"({club_names_map.get(row['club_id'], 'Unknown')})"
+            else:
+                trainer_label = ""
+            username = row['trainer_name']
+            avatar_url = None
+
+        leaderboard_data.append({
+            "username": username,
+            "trainer_name": trainer_label,
+            "avatar_url": avatar_url,
+            "cumulative_fans": row['cumulative_fans'] or 0,
+            "expected_fans": row['expected_fans'] or 0,
+            "is_bomb": bool(row['is_bomb']),
+            "is_behind": bool(row['deficit_surplus'] is not None and row['deficit_surplus'] < 0)
+        })
+
+    return leaderboard_data[:60]
 
 
 class LeaderboardView(discord.ui.View):
@@ -852,10 +958,10 @@ class MemberCommands(commands.Cog):
     @app_commands.autocomplete(club=club_autocomplete)
     async def leaderboard(self, interaction: discord.Interaction, club: str = None):
         """View visual leaderboard of synced trainers (guild-wide or per-club)"""
+        # Intent: Handle the /leaderboard slash command for per-club or guild-wide monthly fan ranking
         await interaction.response.defer()
         
         try:
-            from config.database import db
             import os
             
             # 1. Resolve target clubs and display title
@@ -870,10 +976,10 @@ class MemberCommands(commands.Cog):
                 active_clubs = [club_obj]
                 display_name = club_obj.club_name
                 timezone_str = club_obj.timezone
-                
                 club_tz = pytz.timezone(timezone_str)
-                current_date_str = datetime.now(club_tz).strftime("%B %d, %Y")
-                date_slug = datetime.now(club_tz).strftime("%Y-%m-%d")
+                now_dt = datetime.now(club_tz)
+                current_date_str = now_dt.strftime("%B %d, %Y")
+                date_slug = now_dt.strftime("%Y-%m-%d")
                 cache_prefix = f"club_{club_obj.club_id}_{date_slug}"
             else:
                 # Global guild-wide leaderboard
@@ -886,24 +992,27 @@ class MemberCommands(commands.Cog):
                     await interaction.followup.send("❌ No active clubs registered in this server.")
                     return
                 
-                # If only one club exists, treat it as that specific club's leaderboard
+                timezone_str = active_clubs[0].timezone
+                club_tz = pytz.timezone(timezone_str)
+                now_dt = datetime.now(club_tz)
+                current_date_str = now_dt.strftime("%B %d, %Y")
+                date_slug = now_dt.strftime("%Y-%m-%d")
+                
                 if len(active_clubs) == 1:
                     display_name = active_clubs[0].club_name
-                    timezone_str = active_clubs[0].timezone
-                    club_tz = pytz.timezone(timezone_str)
-                    current_date_str = datetime.now(club_tz).strftime("%B %d, %Y")
-                    date_slug = datetime.now(club_tz).strftime("%Y-%m-%d")
                     cache_prefix = f"club_{active_clubs[0].club_id}_{date_slug}"
                 else:
-                    display_name = interaction.guild.name
-                    timezone_str = active_clubs[0].timezone
-                    club_tz = pytz.timezone(timezone_str)
-                    current_date_str = datetime.now(club_tz).strftime("%B %d, %Y")
-                    date_slug = datetime.now(club_tz).strftime("%Y-%m-%d")
+                    display_name = interaction.guild.name if interaction.guild else "Server Leaderboard"
                     cache_prefix = f"guild_{interaction.guild_id}_{date_slug}"
 
-            club_ids = [c.club_id for c in active_clubs]
             club_names_map = {c.club_id: c.club_name for c in active_clubs}
+
+            # Month boundaries based on target timezone
+            month_start = date(now_dt.year, now_dt.month, 1)
+            if now_dt.month == 12:
+                month_end = date(now_dt.year, 12, 31)
+            else:
+                month_end = date(now_dt.year, now_dt.month + 1, 1) - timedelta(days=1)
 
             # Check if cache exists
             cache_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache", "leaderboards")
@@ -936,107 +1045,24 @@ class MemberCommands(commands.Cog):
                     except Exception as e:
                         logger.warning(f"Failed to read leaderboard cache for {display_name}: {e}. Falling back to DB query.")
 
-            # 2. Query all active users (even unsynced)
-            query = """
-                WITH latest_history AS (
-                    SELECT DISTINCT ON (member_id) member_id, cumulative_fans, expected_fans, deficit_surplus, date, days_behind
-                    FROM quota_history
-                    WHERE club_id = ANY($1::uuid[])
-                    ORDER BY member_id, date DESC
-                )
-                SELECT ul.discord_user_id, m.member_id, m.trainer_name, m.trainer_id, m.club_id,
-                       lh.cumulative_fans, lh.expected_fans, lh.deficit_surplus, lh.date, lh.days_behind,
-                       b.is_active as is_bomb
-                FROM members m
-                LEFT JOIN user_links ul ON m.member_id = ul.member_id
-                LEFT JOIN latest_history lh ON m.member_id = lh.member_id
-                LEFT JOIN bombs b ON m.member_id = b.member_id AND b.is_active = TRUE
-                WHERE m.club_id = ANY($1::uuid[]) AND m.is_active = TRUE
-                ORDER BY COALESCE(lh.cumulative_fans, 0) DESC
-            """
+            # 2. Query data and resolve avatars
+            leaderboard_data = await fetch_and_build_leaderboard_data(
+                bot=self.bot,
+                guild=interaction.guild,
+                active_clubs=active_clubs,
+                club_names_map=club_names_map,
+                month_start=month_start,
+                month_end=month_end
+            )
             
-            rows = await db.fetch(query, club_ids)
-            if not rows:
+            if not leaderboard_data:
                 target_desc = f"**{display_name}**" if club else "this server"
                 await interaction.followup.send(
-                    f"ℹ️ No trainers found in {target_desc}."
+                    f"ℹ️ No active trainers found in {target_desc}."
                 )
                 return
 
-            # 3. Resolve usernames and avatars in parallel
-            fetch_sem = asyncio.Semaphore(3)
-            async def resolve_user(row):
-                import time
-                discord_user_id = row['discord_user_id']
-                if not discord_user_id:
-                    return row, None
-                now = time.time()
-                
-                # Check cache first
-                if discord_user_id in _discord_user_cache:
-                    cached_name, cached_avatar, expires_at = _discord_user_cache[discord_user_id]
-                    if now < expires_at:
-                        if cached_name is None:
-                            return row, None
-                        return row, CachedDiscordUser(cached_name, cached_avatar)
-                
-                user = interaction.guild.get_member(discord_user_id)
-                if not user:
-                    async with fetch_sem:
-                        await asyncio.sleep(0.1)
-                        try:
-                            user = await interaction.guild.fetch_member(discord_user_id)
-                        except Exception:
-                            try:
-                                user = await self.bot.fetch_user(discord_user_id)
-                            except Exception:
-                                user = None
-                
-                if user:
-                    username = user.name
-                    avatar_url = user.display_avatar.with_format("webp").url if user.display_avatar else None
-                    _discord_user_cache[discord_user_id] = (username, avatar_url, now + 86400) # Cache successes for 24 hours
-                    return row, CachedDiscordUser(username, avatar_url)
-                else:
-                    _discord_user_cache[discord_user_id] = (None, None, now + 3600) # Cache failures for 1 hour
-                    return row, None
-
-            tasks = [resolve_user(row) for row in rows]
-            resolved_results = await asyncio.gather(*tasks)
-
-            leaderboard_data = []
-            for row, user in resolved_results:
-                if user:
-                    # Synced trainer display format
-                    if len(active_clubs) > 1:
-                        trainer_label = f"{row['trainer_name']} ({club_names_map.get(row['club_id'], 'Unknown')})"
-                    else:
-                        trainer_label = row['trainer_name']
-                    
-                    username = f"@{user.name}"
-                    avatar_url = user.display_avatar.url
-                else:
-                    # Unsynced trainer display format
-                    if len(active_clubs) > 1:
-                        trainer_label = f"({club_names_map.get(row['club_id'], 'Unknown')})"
-                    else:
-                        trainer_label = ""
-                    
-                    username = row['trainer_name']
-                    avatar_url = None
-
-                leaderboard_data.append({
-                    "username": username,
-                    "trainer_name": trainer_label,
-                    "avatar_url": avatar_url,
-                    "cumulative_fans": row['cumulative_fans'] or 0,
-                    "expected_fans": row['expected_fans'] or 0,
-                    "is_bomb": bool(row['is_bomb']),
-                    "is_behind": bool(row['deficit_surplus'] is not None and row['deficit_surplus'] < 0)
-                })
-
-            # 4. Generate the leaderboard image(s) via paginated view (Max 60 trainers / 6 pages)
-            leaderboard_data = leaderboard_data[:60]
+            # 3. Generate the leaderboard image(s) via paginated view (Max 60 trainers / 6 pages)
             total_pages = (len(leaderboard_data) - 1) // 10 + 1
             
             # Pre-render all pages and save to disk cache
@@ -1094,12 +1120,11 @@ async def pre_render_and_cache_leaderboard(bot, club_id: str = None, guild_id: i
     Query, resolve, render, and cache leaderboard pages to disk in the background.
     Supports either club-level or guild-level caching.
     """
+    # Intent: Pre-render and cache leaderboard WebP images in the background for active month
     try:
-        from config.database import db
         import os
         import pytz
-        import asyncio
-        from datetime import datetime
+        from datetime import datetime, date, timedelta
         
         # 1. Resolve clubs, timezone, display name, and cache prefix
         if club_id:
@@ -1110,9 +1135,11 @@ async def pre_render_and_cache_leaderboard(bot, club_id: str = None, guild_id: i
             display_name = club_obj.club_name
             timezone_str = club_obj.timezone
             club_tz = pytz.timezone(timezone_str)
-            current_date_str = datetime.now(club_tz).strftime("%B %d, %Y")
-            date_slug = datetime.now(club_tz).strftime("%Y-%m-%d")
+            now_dt = datetime.now(club_tz)
+            current_date_str = now_dt.strftime("%B %d, %Y")
+            date_slug = now_dt.strftime("%Y-%m-%d")
             cache_prefix = f"club_{club_obj.club_id}_{date_slug}"
+            target_guild_id = club_obj.guild_id
         elif guild_id:
             clubs = await Club.get_all_for_guild(guild_id)
             if not clubs:
@@ -1120,125 +1147,46 @@ async def pre_render_and_cache_leaderboard(bot, club_id: str = None, guild_id: i
             active_clubs = [c for c in clubs if c.is_active]
             if not active_clubs:
                 return
+            timezone_str = active_clubs[0].timezone
+            club_tz = pytz.timezone(timezone_str)
+            now_dt = datetime.now(club_tz)
+            current_date_str = now_dt.strftime("%B %d, %Y")
+            date_slug = now_dt.strftime("%Y-%m-%d")
+            target_guild_id = guild_id
+            
             if len(active_clubs) == 1:
                 display_name = active_clubs[0].club_name
-                timezone_str = active_clubs[0].timezone
-                club_tz = pytz.timezone(timezone_str)
-                current_date_str = datetime.now(club_tz).strftime("%B %d, %Y")
-                date_slug = datetime.now(club_tz).strftime("%Y-%m-%d")
                 cache_prefix = f"club_{active_clubs[0].club_id}_{date_slug}"
             else:
                 guild = bot.get_guild(guild_id)
                 display_name = guild.name if guild else "Guild Leaderboard"
-                timezone_str = active_clubs[0].timezone
-                club_tz = pytz.timezone(timezone_str)
-                current_date_str = datetime.now(club_tz).strftime("%B %d, %Y")
-                date_slug = datetime.now(club_tz).strftime("%Y-%m-%d")
                 cache_prefix = f"guild_{guild_id}_{date_slug}"
         else:
             return
 
-        club_ids = [c.club_id for c in active_clubs]
         club_names_map = {c.club_id: c.club_name for c in active_clubs}
+        guild = bot.get_guild(target_guild_id)
 
-        # 2. Query all active users (even unsynced)
-        query = """
-            WITH latest_history AS (
-                SELECT DISTINCT ON (member_id) member_id, cumulative_fans, expected_fans, deficit_surplus, date, days_behind
-                FROM quota_history
-                WHERE club_id = ANY($1::uuid[])
-                ORDER BY member_id, date DESC
-            )
-            SELECT ul.discord_user_id, m.member_id, m.trainer_name, m.trainer_id, m.club_id,
-                   lh.cumulative_fans, lh.expected_fans, lh.deficit_surplus, lh.date, lh.days_behind,
-                   b.is_active as is_bomb
-            FROM members m
-            LEFT JOIN user_links ul ON m.member_id = ul.member_id
-            LEFT JOIN latest_history lh ON m.member_id = lh.member_id
-            LEFT JOIN bombs b ON m.member_id = b.member_id AND b.is_active = TRUE
-            WHERE m.club_id = ANY($1::uuid[]) AND m.is_active = TRUE
-            ORDER BY COALESCE(lh.cumulative_fans, 0) DESC
-        """
+        # Month boundaries based on target timezone
+        month_start = date(now_dt.year, now_dt.month, 1)
+        if now_dt.month == 12:
+            month_end = date(now_dt.year, 12, 31)
+        else:
+            month_end = date(now_dt.year, now_dt.month + 1, 1) - timedelta(days=1)
+
+        # 2. Query all active users and resolve avatars
+        leaderboard_data = await fetch_and_build_leaderboard_data(
+            bot=bot,
+            guild=guild,
+            active_clubs=active_clubs,
+            club_names_map=club_names_map,
+            month_start=month_start,
+            month_end=month_end
+        )
         
-        rows = await db.fetch(query, club_ids)
-        if not rows:
+        if not leaderboard_data:
             return
 
-        # 3. Resolve usernames and avatars in parallel
-        fetch_sem = asyncio.Semaphore(3)
-        async def resolve_user(row):
-            import time
-            discord_user_id = row['discord_user_id']
-            if not discord_user_id:
-                return row, None
-            now = time.time()
-            
-            if discord_user_id in _discord_user_cache:
-                cached_name, cached_avatar, expires_at = _discord_user_cache[discord_user_id]
-                if now < expires_at:
-                    if cached_name is None:
-                        return row, None
-                    return row, CachedDiscordUser(cached_name, cached_avatar)
-            
-            # Look up guild member
-            target_guild_id = guild_id if guild_id else active_clubs[0].guild_id
-            guild = bot.get_guild(target_guild_id)
-            user = guild.get_member(discord_user_id) if guild else None
-            if not user:
-                async with fetch_sem:
-                    await asyncio.sleep(0.1)
-                    try:
-                        user = await guild.fetch_member(discord_user_id) if guild else None
-                    except Exception:
-                        try:
-                            user = await bot.fetch_user(discord_user_id)
-                        except Exception:
-                            user = None
-            
-            if user:
-                username = user.name
-                avatar_url = user.display_avatar.with_format("webp").url if user.display_avatar else None
-                _discord_user_cache[discord_user_id] = (username, avatar_url, now + 86400) # Cache successes for 24 hours
-                return row, CachedDiscordUser(username, avatar_url)
-            else:
-                _discord_user_cache[discord_user_id] = (None, None, now + 3600) # Cache failures for 1 hour
-                return row, None
-
-        tasks = [resolve_user(row) for row in rows]
-        resolved_results = await asyncio.gather(*tasks)
-
-        leaderboard_data = []
-        for row, user in resolved_results:
-            if user:
-                # Synced trainer display format
-                if len(active_clubs) > 1:
-                    trainer_label = f"{row['trainer_name']} ({club_names_map.get(row['club_id'], 'Unknown')})"
-                else:
-                    trainer_label = row['trainer_name']
-                
-                username = f"@{user.name}"
-                avatar_url = user.display_avatar.url
-            else:
-                # Unsynced trainer display format
-                if len(active_clubs) > 1:
-                    trainer_label = f"({club_names_map.get(row['club_id'], 'Unknown')})"
-                else:
-                    trainer_label = ""
-                
-                username = row['trainer_name']
-                avatar_url = None
-
-            leaderboard_data.append({
-                "username": username,
-                "trainer_name": trainer_label,
-                "avatar_url": avatar_url,
-                "cumulative_fans": row['cumulative_fans'] or 0,
-                "expected_fans": row['expected_fans'] or 0,
-                "is_bomb": bool(row['is_bomb']),
-                "is_behind": bool(row['deficit_surplus'] is not None and row['deficit_surplus'] < 0)
-            })
-
-        leaderboard_data = leaderboard_data[:60]
         total_pages = (len(leaderboard_data) - 1) // 10 + 1
         
         # Pre-render all pages and save to disk cache
@@ -1253,8 +1201,7 @@ async def pre_render_and_cache_leaderboard(bot, club_id: str = None, guild_id: i
                     os.remove(os.path.join(cache_dir, f))
                 except Exception:
                     pass
-
-        for page_idx in range(total_pages):
+        for page_idx in range(total_pages):
             start_idx = page_idx * 10
             end_idx = start_idx + 10
             page_data = leaderboard_data[start_idx:end_idx]
@@ -1265,6 +1212,7 @@ async def pre_render_and_cache_leaderboard(bot, club_id: str = None, guild_id: i
                 current_date_str=current_date_str,
                 start_rank=start_idx + 1
             )
+            
             page_cache_path = os.path.join(cache_dir, f"{cache_prefix}_page_{page_idx}.webp")
             try:
                 with open(page_cache_path, "wb") as f:
@@ -1275,3 +1223,4 @@ async def pre_render_and_cache_leaderboard(bot, club_id: str = None, guild_id: i
         logger.info(f"✅ Background pre-rendered {total_pages} pages for prefix {cache_prefix}")
     except Exception as e:
         logger.error(f"❌ Error in pre_render_and_cache_leaderboard: {e}", exc_info=True)
+

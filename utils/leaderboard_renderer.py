@@ -248,7 +248,7 @@ async def render_leaderboard_image(
         # Fallback to standard text layout
         draw.text((40, 30), title_text, fill=(255, 255, 255, 255), font=title_font)
 
-    draw.text((40, 75), f"Active synced trainers • {current_date_str}", fill=(148, 163, 184, 255), font=subtitle_font) # Slate-400
+    draw.text((40, 75), f"Monthly Fan Rankings • {current_date_str}", fill=(148, 163, 184, 255), font=subtitle_font) # Slate-400
     
     # Render divider under header
     draw.line((40, 110, img_width - 40, 110), fill=(51, 65, 85, 255), width=1) # Slate-700

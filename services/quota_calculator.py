@@ -476,12 +476,8 @@ class QuotaCalculator:
             else:
                 behind.append(member_status)
 
-        # Sort on_track by Average Fans per Day (descending - most efficient performers first)
-        def get_efficiency(item):
-            days = self.calculate_days_active_in_month(item['member'].join_date, current_date)
-            return item['history'].cumulative_fans / max(1, days)
-            
-        on_track.sort(key=get_efficiency, reverse=True)
+        # Sort on_track by total cumulative fans (descending - highest total fans first)
+        on_track.sort(key=lambda x: x['history'].cumulative_fans, reverse=True)
 
         # Sort behind by deficit (descending - least behind first, to follow the flow from on_track)
         behind.sort(key=lambda x: x['history'].deficit_surplus, reverse=True)

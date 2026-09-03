@@ -58,15 +58,18 @@ class UmaGitHubScraper(BaseScraper):
             return None
 
     def _join_day_from_join_time(self, join_time: Optional[str]) -> Optional[int]:
-        """Resolve the join_time from the profile into a day within the fetched month.
+        """Resolve the join_time from the profile into a game-day within the fetched month.
 
-        Chrono timestamps are JST (Asia/Tokyo). The bot's date model is UTC, so the
-        join_time is converted to UTC before extracting the day. E.g. a join_time of
-        2026-08-02T00:25:15 JST is 2026-08-01 15:25 UTC -> join day 1.
+        Chrono timestamps are JST (Asia/Tokyo). The game day turns over at 10:00 UTC
+        (19:00 JST), so the effective game date of a timestamp is its UTC date shifted
+        back by 10 hours. This mirrors the tracker sheets (uma_tracking) so join-day
+        handling stays identical across both systems. E.g. a join_time of
+        2026-08-03T20:29:41 JST is 2026-08-03 11:29 UTC -> 2026-08-03 01:29 game-day
+        -> join day 3.
 
         Returns None when join_time is missing or unparseable (join day unknown).
-        Members who joined in a previous month (in UTC) are treated as day 1 (present
-        from the start of the current month).
+        Members who joined in a previous month (in game-days) are treated as day 1
+        (present from the start of the current month).
         """
         if not join_time:
             return None
@@ -74,11 +77,12 @@ class UmaGitHubScraper(BaseScraper):
             joined_jst = datetime.fromisoformat(join_time)
         except ValueError:
             return None
-        # JST is fixed UTC+9 (no DST). The bot's date model is UTC.
+        # JST is fixed UTC+9 (no DST). The game day flips at 10:00 UTC (19:00 JST).
         joined_utc = joined_jst - timedelta(hours=9)
-        if (joined_utc.year, joined_utc.month) != (self._fetched_year, self._fetched_month):
+        game_date = (joined_utc - timedelta(hours=10)).date()
+        if (game_date.year, game_date.month) != (self._fetched_year, self._fetched_month):
             return 1
-        return joined_utc.day
+        return game_date.day
 
     def _parse_tracker_raw_data(self, raw_data: dict) -> Dict[str, Dict]:
         """Parse raw JSON from Chrono API (Same format as tracking exports)"""
@@ -159,6 +163,19 @@ class UmaGitHubScraper(BaseScraper):
 
             if fans[-1] == 0:
                 continue
+
+            # Sync with the tracker sheets: count fan data only from the joined
+            # game-day. Chrono backfills phantom cumulative values for the days a
+            # member wasn't in the club yet, so subtract the pre-join baseline and
+            # zero the pre-join days. This keeps cumulative_fans, daily_gain and
+            # avg_daily aligned with the tracker's post-join totals.
+            if join_day is not None and 1 < join_day <= max_day:
+                baseline = max(fans[:join_day - 1])
+                if baseline > 0:
+                    for i in range(join_day - 1):
+                        fans[i] = 0
+                    for i in range(join_day - 1, max_day):
+                        fans[i] = fans[i] - baseline if fans[i] >= baseline else 0
 
             parsed_data[trainer_id] = {
                 "name": names_by_id.get(trainer_id, f"Member {trainer_id}"),
