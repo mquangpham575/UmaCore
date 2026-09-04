@@ -175,7 +175,7 @@ class BotTasks:
                             current_day = scraper.get_current_day()
 
                             if scraped_data:
-                                logger.info(f"✅ Scraping successful for {club.club_name} ({len(scraped_data)} members found)")
+                                logger.info(f"✅ Scraping successful for {club.club_name} ({len(scraped_data)} members found, source: {scraper.get_data_source()})")
                                 break
                             else:
                                 raise ValueError("Scraper returned empty data")
@@ -192,18 +192,15 @@ class BotTasks:
                     # STEP 3: Handle scraping failure
                     if not scraped_data:
                         error_msg = (
-                            f"Failed to scrape data after {max_retries} attempts.\n\n"
+                            f"Failed to scrape data after {max_retries} attempts across all providers (Chrono API & Uma.moe fallback).\n\n"
                             f"**Last error:** {str(last_error)}\n\n"
-                            f"**Most likely cause:**\n"
-                            f"• Data for current day not yet available on ChronoGenesis.\n"
-                            f"• Chronogenesis typically updates around 10:02 UTC daily.\n\n"
-                            f"**Other possible causes:**\n"
-                            f"• ChronoGenesis is down or unreachable (check your VM IP status).\n"
-                            f"• Network timeout.\n"
-                            f"• Invalid scrape URL.\n\n"
+                            f"**Possible causes:**\n"
+                            f"• Data for current day not yet published on ChronoGenesis (~10:02 UTC) or Uma.moe (~15:10 UTC).\n"
+                            f"• ChronoGenesis and Uma.moe are both unreachable or rate-limited.\n"
+                            f"• Network timeout or invalid circle ID.\n\n"
                             f"**What to do:**\n"
-                            f"• Wait a few hours and try `/force_check` again.\n"
-                            f"• Check chronogenesis.net directly to verify data availability."
+                            f"• Wait and try `/force_check` again.\n"
+                            f"• Verify circle status directly on chronogenesis.net or uma.moe."
                         )
                         logger.error(f"Scraping failed for {club.club_name}: {error_msg}")
 
