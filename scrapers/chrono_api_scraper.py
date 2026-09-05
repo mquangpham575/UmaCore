@@ -322,7 +322,7 @@ class UmaGitHubScraper(BaseScraper):
                 # Find a member with recent activity to check data availability
                 for member in members:
                     sample_fans = member.get("daily_fans", [])
-                    if sample_fans and len(sample_fans) > current_day_index and sample_fans[current_day_index] > 0:
+                    if sample_fans and len(sample_fans) > current_day_index and sample_fans[current_day_index] != 0:
                         data_exists = True
                         logger.debug(f"Found current day data in member {member.get('trainer_name')}")
                         break
@@ -338,10 +338,10 @@ class UmaGitHubScraper(BaseScraper):
                         m for m in members
                         if len(m.get("daily_fans", [])) > fallback_idx
                         and len(m.get("daily_fans", [])) > prev_idx
-                        and m["daily_fans"][fallback_idx] > 0
+                        and m["daily_fans"][fallback_idx] != 0
                     ]
                     any_growth = any(
-                        m["daily_fans"][fallback_idx] > m["daily_fans"][prev_idx]
+                        abs(m["daily_fans"][fallback_idx]) > abs(m["daily_fans"][prev_idx])
                         for m in relevant
                     )
                     if relevant and not any_growth:
@@ -371,8 +371,8 @@ class UmaGitHubScraper(BaseScraper):
             for m in endpoint_members:
                 vid = m.get("viewer_id")
                 fans = m.get("daily_fans", [])
-                if vid and fans and len(fans) > 0 and fans[0] > 0:
-                    endpoint_totals[str(vid)] = fans[0]
+                if vid and fans and len(fans) > 0 and fans[0] != 0:
+                    endpoint_totals[str(vid)] = abs(fans[0])
             logger.info(f"Endpoint correction available for {len(endpoint_totals)} members")
 
         for member in members:
@@ -390,39 +390,40 @@ class UmaGitHubScraper(BaseScraper):
                 logger.warning(f"Current day {current_day} exceeds array length for {trainer_name}")
                 continue
 
-            current_day_lifetime_fans = lifetime_fans[current_day_index]
-            if current_day_lifetime_fans == 0:
+            current_day_lifetime_raw = lifetime_fans[current_day_index]
+            if current_day_lifetime_raw is None or current_day_lifetime_raw == 0:
                 logger.debug(f"Skipping inactive member (left club): {trainer_name} (ID: {viewer_id})")
                 continue
 
+            current_day_lifetime_fans = abs(current_day_lifetime_raw)
             viewer_id_str = str(viewer_id)
 
-            # Detect join day (first day they appear in the data, even if fans were 0)
+            # Detect join day (first non-zero day they appear in the data) and starting lifetime baseline
             join_day = 1
             starting_lifetime_fans = 0
 
             for idx, fans_val in enumerate(lifetime_fans[:current_day], start=1):
-                # Detect the first day they appear in the club data.
-                if fans_val is not None:
+                if fans_val is not None and fans_val != 0:
                     join_day = idx
-                    starting_lifetime_fans = fans_val
+                    starting_lifetime_fans = abs(fans_val)
                     break
 
             # Convert lifetime cumulative fans to monthly cumulative fans
+            # Formula: monthly_fans = abs(lifetime_fans) - starting_lifetime_fans
             monthly_fans = []
             for day_idx in range(current_day):
-                lifetime_total = lifetime_fans[day_idx]
-
-                if lifetime_total == 0:
+                raw_fans = lifetime_fans[day_idx]
+                if raw_fans is None or raw_fans == 0:
                     fans_this_month = 0
                 else:
-                    fans_this_month = lifetime_total - starting_lifetime_fans
+                    lifetime_total = abs(raw_fans)
+                    fans_this_month = lifetime_total - starting_lifetime_fans if lifetime_total >= starting_lifetime_fans else 0
 
                 monthly_fans.append(fans_this_month)
 
             # Day 1 endpoint correction
             if endpoint_totals and viewer_id_str in endpoint_totals:
-                endpoint_lifetime = endpoint_totals[viewer_id_str]
+                endpoint_lifetime = abs(endpoint_totals[viewer_id_str])
                 if endpoint_lifetime >= starting_lifetime_fans:
                     corrected_monthly = endpoint_lifetime - starting_lifetime_fans
                     if corrected_monthly > monthly_fans[-1]:
