@@ -294,7 +294,11 @@ class QuotaCalculator:
                     await member.update_join_date(scraped_join_date)
                     member.join_date = scraped_join_date # Update local object for subsequent calculations
                     logger.info(f"Corrected join date for {trainer_name}: {old_date} -> {scraped_join_date}")
-                    logger.info(f"Corrected join date for {trainer_name}: {old_date} -> {scraped_join_date}")
+                    # Retroactively recompute stale quota_history records for this month
+                    await self._recalculate_member_history(
+                        member, club_id, data_date, quota_period,
+                        pre_fetched_requirements, default_quota
+                    )
 
                 # Reactivate if previously auto-deactivated
                 if not member.is_active:
@@ -376,6 +380,50 @@ class QuotaCalculator:
         logger.info(f"Processed {updated_members} members ({new_members} new) for club {club_id}")
         return new_members, updated_members
     
+    async def _recalculate_member_history(self, member, club_id: UUID, current_date: date,
+                                          quota_period: str, pre_fetched_requirements: list, default_quota: int):
+        """Retroactively recalculate expected fans and deficit for a member's current-month history rows"""
+        rows = await db.fetch(
+            """
+            SELECT id, date, cumulative_fans
+            FROM quota_history
+            WHERE member_id = $1
+              AND date_part('year', date) = $2
+              AND date_part('month', date) = $3
+            ORDER BY date ASC
+            """,
+            member.member_id, current_date.year, current_date.month
+        )
+        for row in rows:
+            row_date = row['date']
+            if row_date < member.join_date:
+                exp = 0
+                def_sur = 0
+                d_behind = 0
+            else:
+                exp = await self.calculate_expected_fans(
+                    club_id, member.join_date, row_date, quota_period,
+                    pre_fetched_requirements=pre_fetched_requirements,
+                    default_quota=default_quota
+                )
+                def_sur = self.calculate_deficit_surplus(row['cumulative_fans'], exp)
+                stored_q = default_quota
+                for req_date, q_val in pre_fetched_requirements:
+                    if req_date <= row_date:
+                        stored_q = q_val
+                    else:
+                        break
+                d_behind = await self._calculate_days_behind(member.member_id, def_sur, row_date, stored_q)
+
+            await db.execute(
+                """
+                UPDATE quota_history
+                SET expected_fans = $1, deficit_surplus = $2, days_behind = $3
+                WHERE id = $4
+                """,
+                exp, def_sur, d_behind, row['id']
+            )
+
     async def _calculate_days_behind(self, member_id: UUID, current_deficit_surplus: int,
                                     data_date: date, daily_quota: int = 5000000) -> int:
         """Calculate how many 'days of work' a member is behind based on daily quota"""
@@ -445,14 +493,52 @@ class QuotaCalculator:
             period_quota = round(stored_quota / period_info['period_days'] * actual_period_length)
             period_info['period_quota'] = period_quota
 
-        on_track = []
-        behind = []
+        from models import Club
+        club = await Club.get_by_id(club_id)
+        default_quota = club.daily_quota if club else 1000000
+
+        query = """
+            SELECT effective_date, daily_quota
+            FROM quota_requirements
+            WHERE club_id = $1 AND effective_date <= $2
+            ORDER BY effective_date ASC
+        """
+        req_rows = await db.fetch(query, club_id, current_date)
+        pre_fetched = [(r['effective_date'], r['daily_quota']) for r in req_rows]
 
         for member in members:
             latest_history = await QuotaHistory.get_latest_for_member(member.member_id)
 
             if not latest_history:
                 continue
+
+            # Auto-healing: Ensure expected_fans and deficit strictly match member.join_date
+            if latest_history.date.year == current_date.year and latest_history.date.month == current_date.month:
+                correct_exp = await self.calculate_expected_fans(
+                    club_id, member.join_date, latest_history.date, quota_period,
+                    pre_fetched_requirements=pre_fetched,
+                    default_quota=default_quota
+                )
+                if latest_history.expected_fans != correct_exp:
+                    correct_def = self.calculate_deficit_surplus(latest_history.cumulative_fans, correct_exp)
+                    stored_q = default_quota
+                    for req_date, q_val in pre_fetched:
+                        if req_date <= latest_history.date:
+                            stored_q = q_val
+                        else:
+                            break
+                    correct_behind = await self._calculate_days_behind(member.member_id, correct_def, latest_history.date, stored_q)
+
+                    # Update local object
+                    latest_history.expected_fans = correct_exp
+                    latest_history.deficit_surplus = correct_def
+                    latest_history.days_behind = correct_behind
+
+                    # Persist fix to DB
+                    await db.execute(
+                        "UPDATE quota_history SET expected_fans = $1, deficit_surplus = $2, days_behind = $3 WHERE id = $4",
+                        correct_exp, correct_def, correct_behind, latest_history.id
+                    )
 
             member_status = {
                 'member': member,

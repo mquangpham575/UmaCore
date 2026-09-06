@@ -789,35 +789,25 @@ class AdminCommands(commands.Cog):
 
             await interaction.followup.send(f"🔄 Recalculating for {club}...")
 
-            # Step 1: Recalculate days_behind for all members in the current month.
-            # Walk each member's history in date order and track consecutive deficit days.
-            members = await Member.get_all_active(club_obj.club_id)
-            updated_entries = 0
+            # Step 1: Recalculate expected_fans, deficit_surplus, and days_behind for all members in current month.
+            default_quota = club_obj.daily_quota if club_obj.daily_quota else 1000000
+            req_rows = await _db.fetch(
+                """
+                SELECT effective_date, daily_quota
+                FROM quota_requirements
+                WHERE club_id = $1 AND effective_date <= $2
+                ORDER BY effective_date ASC
+                """,
+                club_obj.club_id, current_date
+            )
+            pre_fetched = [(r['effective_date'], r['daily_quota']) for r in req_rows]
 
             for member in members:
-                rows = await _db.fetch(
-                    """
-                    SELECT id, date, deficit_surplus
-                    FROM quota_history
-                    WHERE member_id = $1
-                      AND date_part('year', date) = $2
-                      AND date_part('month', date) = $3
-                    ORDER BY date ASC
-                    """,
-                    member.member_id, current_date.year, current_date.month
+                await self.quota_calculator._recalculate_member_history(
+                    member, club_obj.club_id, current_date, club_obj.quota_period,
+                    pre_fetched, default_quota
                 )
-
-                consecutive = 0
-                for row in rows:
-                    if row['deficit_surplus'] < 0:
-                        consecutive += 1
-                    else:
-                        consecutive = 0
-                    await _db.execute(
-                        "UPDATE quota_history SET days_behind = $1 WHERE id = $2",
-                        consecutive, row['id']
-                    )
-                    updated_entries += 1
+                updated_entries += 1
 
             # Step 2: Deactivate all current bombs and re-evaluate from scratch.
             await _db.execute(
