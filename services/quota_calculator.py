@@ -286,10 +286,9 @@ class QuotaCalculator:
                 if member.trainer_name != trainer_name:
                     await member.update_name(trainer_name)
                 
-                # SELF-CORRECTION: When join_day is derived from the profile's
-                # authoritative join_time, keep the DB in sync (fixes dates that were
-                # mis-set by the previous history-backfill join-day bug).
-                if member_data.get("join_day_reliable") and scraped_join_date != member.join_date:
+                # SELF-CORRECTION: Keep DB in sync when an authoritative Chrono join_time is available,
+                # or when scraped_join_date is later than the initial default join date.
+                if (member_data.get("join_day_reliable") or scraped_join_date > member.join_date) and scraped_join_date != member.join_date:
                     old_date = member.join_date
                     await member.update_join_date(scraped_join_date)
                     member.join_date = scraped_join_date # Update local object for subsequent calculations
