@@ -94,12 +94,10 @@ class UmaGitHubScraper(BaseScraper):
     def _join_day_from_join_time(self, join_time: Optional[str]) -> Optional[int]:
         """Resolve the join_time from the profile into a game-day within the fetched month.
 
-        Chrono timestamps are JST (Asia/Tokyo). The game day turns over at 10:00 UTC
-        (19:00 JST), so the effective game date of a timestamp is its UTC date shifted
-        back by 10 hours. This mirrors the tracker sheets (uma_tracking) so join-day
-        handling stays identical across both systems. E.g. a join_time of
-        2026-08-03T20:29:41 JST is 2026-08-03 11:29 UTC -> 2026-08-03 01:29 game-day
-        -> join day 3.
+        Chrono timestamps are JST (Asia/Tokyo). The game day turns over at 05:00 JST,
+        so the effective game date of a timestamp is its JST timestamp shifted back by 5 hours.
+        E.g. a join_time of 2026-09-05T06:27:27 JST -> 2026-09-05 01:27:27 -> join day 5.
+        A join_time of 2026-09-02T00:16:03 JST -> 2026-09-01 19:16:03 -> join day 1.
 
         Returns None when join_time is missing or unparseable (join day unknown).
         Members who joined in a previous month (in game-days) are treated as day 1
@@ -111,9 +109,8 @@ class UmaGitHubScraper(BaseScraper):
             joined_jst = datetime.fromisoformat(join_time)
         except ValueError:
             return None
-        # JST is fixed UTC+9 (no DST). The game day flips at 10:00 UTC (19:00 JST).
-        joined_utc = joined_jst - timedelta(hours=9)
-        game_date = (joined_utc - timedelta(hours=10)).date()
+        # Chrono timestamps are in JST. Umamusume daily reset occurs at 05:00 JST.
+        game_date = (joined_jst - timedelta(hours=5)).date()
         if (game_date.year, game_date.month) != (self._fetched_year, self._fetched_month):
             return 1
         return game_date.day
@@ -359,9 +356,8 @@ class UmaGitHubScraper(BaseScraper):
                 self._data_date = date(self._fetched_year, self._fetched_month, current_day)
             else:
                 # Current day data exists
-                current_day = now.day
-                self._data_date = date(self._fetched_year, self._fetched_month, now.day)
-                logger.info(f"Day {current_day} data is available (represents day {now.day - 1} competition results)")
+                self._data_date = date(self._fetched_year, self._fetched_month, current_day)
+                logger.info(f"Day {current_day} data is available (represents day {current_day - 1} competition results)")
 
         self.current_day_count = current_day
 
