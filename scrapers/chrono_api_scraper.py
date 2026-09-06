@@ -7,6 +7,9 @@ import calendar
 import aiohttp
 import os
 from datetime import datetime, date, timedelta
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from scrapers.base_scraper import BaseScraper
 
