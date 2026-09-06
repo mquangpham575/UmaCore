@@ -506,6 +506,9 @@ class QuotaCalculator:
         req_rows = await db.fetch(query, club_id, current_date)
         pre_fetched = [(r['effective_date'], r['daily_quota']) for r in req_rows]
 
+        on_track = []
+        behind = []
+
         for member in members:
             latest_history = await QuotaHistory.get_latest_for_member(member.member_id)
 
