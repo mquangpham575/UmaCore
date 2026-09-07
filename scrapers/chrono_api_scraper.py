@@ -383,40 +383,41 @@ class UmaGitHubScraper(BaseScraper):
                 logger.warning(f"Skipping member with missing data: viewer_id={viewer_id}, name={trainer_name}")
                 continue
 
-            # Skip members who left the club (0 fans on current day)
+            # Skip members who are not currently active in the club (<= 0 on current day)
             current_day_index = current_day - 1
             if current_day_index >= len(lifetime_fans):
                 logger.warning(f"Current day {current_day} exceeds array length for {trainer_name}")
                 continue
 
             current_day_lifetime_raw = lifetime_fans[current_day_index]
-            if current_day_lifetime_raw is None or current_day_lifetime_raw == 0:
-                logger.debug(f"Skipping inactive member (left club): {trainer_name} (ID: {viewer_id})")
+            if current_day_lifetime_raw is None or current_day_lifetime_raw <= 0:
+                logger.debug(f"Skipping inactive member (left club or not in club): {trainer_name} (ID: {viewer_id})")
                 continue
 
-            current_day_lifetime_fans = abs(current_day_lifetime_raw)
+            current_day_lifetime_fans = current_day_lifetime_raw
             viewer_id_str = str(viewer_id)
 
-            # Detect join day (first non-zero day they appear in the data) and starting lifetime baseline
+            # Detect join day (first positive day they appear in this club) and starting lifetime baseline.
+            # In uma.moe API, negative numbers represent days spent in previous clubs, 0 means no record,
+            # and positive numbers represent active days in the current club.
             join_day = 1
             starting_lifetime_fans = 0
 
             for idx, fans_val in enumerate(lifetime_fans[:current_day], start=1):
-                if fans_val is not None and fans_val != 0:
+                if fans_val is not None and fans_val > 0:
                     join_day = idx
-                    starting_lifetime_fans = abs(fans_val)
+                    starting_lifetime_fans = fans_val
                     break
 
-            # Convert lifetime cumulative fans to monthly cumulative fans
-            # Formula: monthly_fans = abs(lifetime_fans) - starting_lifetime_fans
+            # Convert lifetime cumulative fans to monthly cumulative fans in this club
+            # Days before join_day (<= 0) contribute 0.
             monthly_fans = []
             for day_idx in range(current_day):
                 raw_fans = lifetime_fans[day_idx]
-                if raw_fans is None or raw_fans == 0:
+                if raw_fans is None or raw_fans <= 0:
                     fans_this_month = 0
                 else:
-                    lifetime_total = abs(raw_fans)
-                    fans_this_month = lifetime_total - starting_lifetime_fans if lifetime_total >= starting_lifetime_fans else 0
+                    fans_this_month = raw_fans - starting_lifetime_fans if raw_fans >= starting_lifetime_fans else 0
 
                 monthly_fans.append(fans_this_month)
 
