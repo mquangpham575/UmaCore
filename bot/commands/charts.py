@@ -37,7 +37,7 @@ async def _fetch_via_scraper(circle_id: str) -> tuple[dict[str, dict], int, int,
         join_day = data["join_day"]
         fans_array: list[int] = data["fans"]  # monthly cumulative, index 0 = day 1
 
-        dates: list[str] = []
+        dates: list[date] = []
         fans: list[int] = []
         for day_idx, monthly_val in enumerate(fans_array):
             day_num = day_idx + 1
@@ -46,7 +46,7 @@ async def _fetch_via_scraper(circle_id: str) -> tuple[dict[str, dict], int, int,
             
             try:
                 dt = date(year, month, day_num)
-                dates.append(dt.strftime("%d.%m"))
+                dates.append(dt)
                 fans.append(monthly_val)
             except ValueError:
                 # Handle potential day-out-of-range for the month
@@ -59,76 +59,109 @@ async def _fetch_via_scraper(circle_id: str) -> tuple[dict[str, dict], int, int,
 
 
 def _build_chart(member_data: dict[str, dict]) -> bytes:
-    """Render the Plotly chart and return PNG bytes."""
-    import plotly.graph_objects as go
+    """Render the fan progression chart using matplotlib and return PNG bytes."""
+    import glob
+    from datetime import timedelta
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.font_manager as fm
+    for font_path in glob.glob('/usr/share/fonts/**/*.otf', recursive=True) + glob.glob('/usr/share/fonts/**/*.ttf', recursive=True):
+        try:
+            fm.fontManager.addfont(font_path)
+        except Exception:
+            pass
 
-    fig = go.Figure()
-    for name, data in member_data.items():
-        fig.add_trace(go.Scatter(
-            x=data["dates"],
-            y=data["fans"],
-            mode="lines",
-            name=name,
-            line=dict(width=2),
-            hovertemplate=f"<b>{name}</b><br>%{{x}}<br>%{{y:,.0f}} fans<extra></extra>",
-        ))
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+    import matplotlib.ticker as ticker
 
-    all_fans = [v for d in member_data.values() for v in d["fans"]]
-    max_val = max(all_fans) if all_fans else 1_000_000
+    plt.style.use('dark_background')
+    plt.rcParams['font.sans-serif'] = ['Noto Sans CJK JP', 'Noto Sans CJK SC', 'DejaVu Sans', 'Arial', 'sans-serif']
+    plt.rcParams['axes.unicode_minus'] = False
 
-    # Compute clean Y-axis ticks
-    raw_step = max_val / 8
-    magnitude = 10 ** math.floor(math.log10(raw_step)) if raw_step > 0 else 1
-    tick_step = max(round(raw_step / magnitude) * magnitude, 1)
-    tick_vals = list(range(0, int(max_val * 1.15) + tick_step, tick_step))
+    num_members = len(member_data)
+    fig_height = max(7.0, 4.0 + (num_members * 0.15))
+    fig, ax = plt.subplots(figsize=(12, fig_height), dpi=160)
 
-    def fmt_fans(v: int) -> str:
-        if v >= 1_000_000_000:
-            return f"{v / 1_000_000_000:.1f}B"
-        elif v >= 1_000_000:
-            return f"{v / 1_000_000:.0f}M"
-        elif v >= 1_000:
-            return f"{v / 1_000:.0f}K"
-        return str(v)
+    fig.patch.set_facecolor('#111827')
+    ax.set_facecolor('#111827')
 
-    fig.update_layout(
-        template="plotly_dark",
-        title=dict(
-            text="Member Progression",
-            font=dict(size=18, color="white"),
-            x=0,
-            xref="paper",
-            pad=dict(l=10),
-        ),
-        paper_bgcolor="#111827",
-        plot_bgcolor="#111827",
-        xaxis=dict(
-            showgrid=True,
-            gridcolor="#2d3748",
-            gridwidth=1,
-            tickfont=dict(size=11, color="#a0aec0"),
-            tickangle=0,
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor="#2d3748",
-            gridwidth=1,
-            tickvals=tick_vals,
-            ticktext=[fmt_fans(v) for v in tick_vals],
-            tickfont=dict(size=11, color="#a0aec0"),
-        ),
-        legend=dict(
-            font=dict(size=10, color="#e2e8f0"),
-            bgcolor="rgba(0,0,0,0)",
-            borderwidth=0,
-        ),
-        margin=dict(l=70, r=20, t=60, b=40),
-        width=1100,
-        height=max(500, 60 + len(member_data) * 22),
-        hovermode="x unified",
+    # Color palette
+    colors = plt.cm.tab20.colors + plt.cm.tab20b.colors
+
+    all_dates: list[date] = []
+    for idx, (name, data) in enumerate(member_data.items()):
+        # Sort each member's points chronologically
+        sorted_pairs = sorted(zip(data["dates"], data["fans"]), key=lambda p: p[0])
+        dates = [p[0] for p in sorted_pairs]
+        fans = [p[1] for p in sorted_pairs]
+        all_dates.extend(dates)
+
+        color = colors[idx % len(colors)]
+        ax.plot(
+            dates,
+            fans,
+            label=name,
+            color=color,
+            linewidth=2,
+            marker='o',
+            markersize=3.5,
+            alpha=0.9
+        )
+
+    ax.set_title("Member Progression", fontsize=15, fontweight='bold', color='white', pad=15, loc='left')
+    ax.set_xlabel("Date", fontsize=10, color='#a0aec0', labelpad=8)
+    ax.set_ylabel("Fans", fontsize=10, color='#a0aec0', labelpad=8)
+
+    # Chronological continuous date scale
+    if all_dates:
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+        # Always align starting x-limit to Day 1 of the month if available
+        first_of_month = date(min_date.year, min_date.month, 1)
+        start_bound = first_of_month if first_of_month <= min_date else min_date
+        ax.set_xlim(start_bound - timedelta(hours=12), max_date + timedelta(hours=12))
+
+        span_days = (max_date - start_bound).days + 1
+        day_interval = 1 if span_days <= 10 else (2 if span_days <= 20 else 3)
+    else:
+        day_interval = 1
+
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m'))
+    ax.xaxis.set_major_locator(mdates.DayLocator(interval=day_interval))
+
+    def fan_formatter(x, pos):
+        if x >= 1_000_000_000:
+            return f"{x / 1_000_000_000:.1f}B"
+        elif x >= 1_000_000:
+            return f"{x / 1_000_000:.0f}M"
+        elif x >= 1_000:
+            return f"{x / 1_000:.0f}K"
+        return str(int(x))
+
+    ax.yaxis.set_major_formatter(ticker.FuncFormatter(fan_formatter))
+    ax.grid(True, linestyle='--', alpha=0.25, color='#4b5563')
+    ax.tick_params(colors='#a0aec0', labelsize=9)
+
+    ncol = 2 if num_members > 15 else 1
+    ax.legend(
+        bbox_to_anchor=(1.02, 1),
+        loc='upper left',
+        ncol=ncol,
+        framealpha=0.3,
+        facecolor='#1f2937',
+        edgecolor='#374151',
+        fontsize=8.5,
+        labelcolor='#e2e8f0'
     )
 
-    return fig.to_image(format="png", scale=2)
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), edgecolor='none', bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    return buf.getvalue()
 
 
 class ChartCommands(commands.Cog):
@@ -158,10 +191,10 @@ class ChartCommands(commands.Cog):
         await interaction.response.defer()
 
         try:
-            import plotly.graph_objects  # noqa: F401 — verify installed early
+            import matplotlib  # noqa: F401 — verify installed early
         except ImportError:
             await interaction.followup.send(
-                "❌ Plotly is not installed. Run `pip install plotly kaleido`."
+                "❌ Matplotlib is not installed. Run `pip install matplotlib`."
             )
             return
 
@@ -184,7 +217,7 @@ class ChartCommands(commands.Cog):
             member_data: dict[str, dict] | None = None
 
             try:
-                await interaction.followup.send("🔍 Fetching monthly history via GitHub API...")
+                await interaction.followup.send("🔍 Aston Macching data history")
                 member_data, _, fetched_year, fetched_month = await _fetch_via_scraper(
                     club_obj.circle_id
                 )
@@ -213,7 +246,8 @@ class ChartCommands(commands.Cog):
                     name = row["trainer_name"]
                     if name not in member_data:
                         member_data[name] = {"dates": [], "fans": []}
-                    member_data[name]["dates"].append(row["date"].strftime("%d.%m"))
+                    row_date = row["date"].date() if isinstance(row["date"], datetime) else row["date"]
+                    member_data[name]["dates"].append(row_date)
                     member_data[name]["fans"].append(row["cumulative_fans"])
 
             if not member_data:
@@ -227,8 +261,7 @@ class ChartCommands(commands.Cog):
             except Exception as e:
                 logger.error(f"Failed to render chart image: {e}", exc_info=True)
                 await interaction.followup.send(
-                    "❌ Failed to render chart image. "
-                    "Make sure `kaleido` is installed: `pip install kaleido`"
+                    "❌ Failed to render chart image."
                 )
                 return
 

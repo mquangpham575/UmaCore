@@ -6,7 +6,7 @@ import logging
 import calendar
 import aiohttp
 import os
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -258,14 +258,12 @@ class UmaGitHubScraper(BaseScraper):
             # 2. Fallback: Uma.moe API
             logger.warning(f"Chrono API unavailable for circle {self.circle_id}. Attempting Uma.moe fallback...")
             try:
-                now = datetime.now()
-                fetch_year = now.year
-                fetch_month = now.month
-
-                if now.day == 1:
-                    first_of_month = date(now.year, now.month, 1)
-                    last_month_date = first_of_month - timedelta(days=1)
-                    fetch_year, fetch_month = last_month_date.year, last_month_date.month
+                # Uma.moe slot N holds the same data as Chrono day N, and the newest complete
+                # slot on UTC calendar day D is D-1 ("Yesterday" - the same convention the
+                # scheduler in bot/tasks.py expects). Fetch the month that day belongs to,
+                # which on the 1st is the previous month.
+                target = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+                fetch_year, fetch_month = target.year, target.month
 
                 self._fetched_year = fetch_year
                 self._fetched_month = fetch_month
@@ -285,7 +283,13 @@ class UmaGitHubScraper(BaseScraper):
                     if not members_list:
                         raise ValueError(f"Uma.moe returned 0 members for circle {self.circle_id}")
 
-                    parsed_data = self._parse_api_data(members_list, calendar_day=now.day if now.day > 1 else None)
+                    parsed_data = self._parse_api_data(members_list, max_day=target.day)
+                    if self.current_day_count < target.day:
+                        logger.warning(
+                            f"Uma.moe has only published up to day {self.current_day_count} of "
+                            f"{fetch_year}-{fetch_month:02d}; expected day {target.day} "
+                            f"(Uma.moe updates ~15:10 UTC). Using day {self.current_day_count}."
+                        )
                     logger.info(f"Successfully parsed {len(parsed_data)} active members from Uma.moe API fallback")
                     return parsed_data
                 else:
@@ -298,147 +302,115 @@ class UmaGitHubScraper(BaseScraper):
         error_summary = " | ".join(errors)
         raise ValueError(f"All data sources failed for circle {self.circle_id}: {error_summary}")
 
-    def _parse_api_data(self, members: list, endpoint_members: Optional[List] = None, calendar_day: int = None) -> Dict[str, Dict]:
+    @staticmethod
+    def _latest_populated_day(members: list) -> int:
+        """Newest day slot (>= 1) that holds data for at least one member.
+
+        Slot 0 is the month-start baseline, so it never counts as a day of data.
         """
-        Parse API member data into scraper format.
+        latest = 0
+        for member in members:
+            fans = member.get("daily_fans") or []
+            for idx in range(len(fans) - 1, latest, -1):
+                if fans[idx]:
+                    latest = idx
+                    break
+        return latest
+
+    @staticmethod
+    def _resolve_join_and_baseline(fans: list, latest_day: int) -> tuple:
+        """Work out a member's join day and the lifetime-fan baseline to subtract.
+
+        Uma.moe has no join_time (Chrono does), so this is inferred from the sign/zero pattern
+        of ``daily_fans`` (lifetime fans, slot d == Chrono day d, slot 0 == month-start baseline):
+
+        - negative values are days spent in a previous club, 0 means no record, positive means
+          in this club.
+        - first positive at slot 0: in the club since before the month -> join day 1.
+        - first positive at slot 1: in the club from day 1 (a negative slot 0 is the previous
+          club's month-start baseline and is used as the baseline, so day-1 gains are kept).
+        - first positive at slot k >= 2: verified against Chrono join_time for a live club, Uma.moe
+          flips to positive two slots before the Chrono game-day of the join (slot = join_day - 2),
+          so the join day is k + 2 and only fans from that day on count (baseline = slot join_day-1).
+          Members who joined before 05:00 JST land one day later than Chrono's game-day; Uma.moe
+          simply doesn't carry the time of day.
+
+        Returns (join_day, baseline_lifetime_fans).
         """
-        parsed_data = {}
+        first_pos = next(i for i in range(latest_day + 1) if fans[i] is not None and fans[i] > 0)
 
-        now = datetime.now()
+        if first_pos == 0:
+            return 1, fans[0]
+        if first_pos == 1:
+            slot0 = fans[0]
+            return 1, (abs(slot0) if slot0 is not None and slot0 < 0 else fans[1])
 
-        if now.day == 1:
-            # Day 1: Fetched previous month, use last day of that month
-            current_day = calendar.monthrange(self._fetched_year, self._fetched_month)[1]
-            self._data_date = date(self._fetched_year, self._fetched_month, current_day)
-            logger.info(f"Day 1 fallback: using day {current_day} (last day of {self._fetched_year}-{self._fetched_month:02d})")
-        else:
-            # Day 2+: Check if current day data exists
-            current_day = calendar_day if calendar_day else now.day
-            current_day_index = current_day - 1
+        join_day = min(first_pos + 2, latest_day)
+        return join_day, fans[max(first_pos, join_day - 1)]
 
-            # Check if current day data exists by sampling active members
-            data_exists = False
-            if members:
-                # Find a member with recent activity to check data availability
-                for member in members:
-                    sample_fans = member.get("daily_fans", [])
-                    if sample_fans and len(sample_fans) > current_day_index and sample_fans[current_day_index] != 0:
-                        data_exists = True
-                        logger.debug(f"Found current day data in member {member.get('trainer_name')}")
-                        break
+    def _parse_api_data(self, members: list, max_day: Optional[int] = None) -> Dict[str, Dict]:
+        """
+        Parse Uma.moe circle members into the same shape the Chrono parser produces.
 
-            if not data_exists:
-                fallback_day = now.day - 1
-                fallback_idx = fallback_day - 1   # 0-based index for fallback day
-                prev_idx = fallback_day - 2       # 0-based index for the day before that
+        Uma.moe's ``daily_fans`` is a *lifetime* fan count per slot (32 slots for a 30-day
+        month), where slot d matches Chrono's ``actual_date`` d and slot 0 is the baseline
+        before day 1. Chrono instead reports fans gained this month, with ``fans[d - 1]`` being
+        day d. This converts one into the other so ``fans[d - 1]`` means the same thing for both
+        sources, and sets the data date/day from the newest populated slot (like Chrono's
+        max ``actual_date``) instead of the wall clock.
 
-                # When falling back past day 1, verify the fallback data is genuinely fresh.
-                if fallback_day >= 2 and prev_idx >= 0:
-                    relevant = [
-                        m for m in members
-                        if len(m.get("daily_fans", [])) > fallback_idx
-                        and len(m.get("daily_fans", [])) > prev_idx
-                        and m["daily_fans"][fallback_idx] != 0
-                    ]
-                    any_growth = any(
-                        abs(m["daily_fans"][fallback_idx]) > abs(m["daily_fans"][prev_idx])
-                        for m in relevant
-                    )
-                    if relevant and not any_growth:
-                        raise ValueError(
-                            f"Day {fallback_day} data appears stale — fan counts are unchanged from "
-                            f"day {fallback_day - 1} for all sampled members. "
-                            f"Uma.moe likely hasn't published today's update yet (typically ~15:10 UTC)."
-                        )
+        Args:
+            members: ``members`` list from the Uma.moe ``/api/v4/circles`` response.
+            max_day: Newest day allowed for the data (yesterday's day-of-month).
+        """
+        days_in_month = calendar.monthrange(self._fetched_year, self._fetched_month)[1]
+        latest_day = min(self._latest_populated_day(members), days_in_month)
+        if max_day is not None:
+            latest_day = min(latest_day, max_day)
 
-                current_day = fallback_day
-                logger.warning(
-                    f"Current day {now.day} data not available yet (Uma.moe updates ~15:10 UTC). "
-                    f"Using day {current_day} data."
-                )
-                self._data_date = date(self._fetched_year, self._fetched_month, current_day)
-            else:
-                # Current day data exists
-                self._data_date = date(self._fetched_year, self._fetched_month, current_day)
-                logger.info(f"Day {current_day} data is available (represents day {current_day - 1} competition results)")
+        if latest_day < 1:
+            raise ValueError(
+                f"Uma.moe has no fan data yet for {self._fetched_year}-{self._fetched_month:02d} "
+                f"(typically published ~15:10 UTC)."
+            )
 
-        self.current_day_count = current_day
+        self.current_day_count = latest_day
+        self._data_date = date(self._fetched_year, self._fetched_month, latest_day)
+        logger.info(f"Uma.moe data covers day {latest_day} ({self._data_date})")
 
-        # Build endpoint lookup for Day 1 correction
-        endpoint_totals = {}
-        if endpoint_members:
-            for m in endpoint_members:
-                vid = m.get("viewer_id")
-                fans = m.get("daily_fans", [])
-                if vid and fans and len(fans) > 0 and fans[0] != 0:
-                    endpoint_totals[str(vid)] = abs(fans[0])
-            logger.info(f"Endpoint correction available for {len(endpoint_totals)} members")
+        parsed_data: Dict[str, Dict] = {}
 
         for member in members:
             viewer_id = member.get("viewer_id")
             trainer_name = member.get("trainer_name")
-            lifetime_fans = member.get("daily_fans", [])
+            lifetime_fans = member.get("daily_fans") or []
 
             if not viewer_id or not trainer_name:
                 logger.warning(f"Skipping member with missing data: viewer_id={viewer_id}, name={trainer_name}")
                 continue
 
-            # Skip members who are not currently active in the club (<= 0 on current day)
-            current_day_index = current_day - 1
-            if current_day_index >= len(lifetime_fans):
-                logger.warning(f"Current day {current_day} exceeds array length for {trainer_name}")
+            if len(lifetime_fans) <= latest_day:
+                logger.warning(f"Day {latest_day} exceeds array length for {trainer_name}")
                 continue
 
-            current_day_lifetime_raw = lifetime_fans[current_day_index]
-            if current_day_lifetime_raw is None or current_day_lifetime_raw <= 0:
+            # Skip members who are not in the club on the latest day (<= 0 = left / other club)
+            latest_value = lifetime_fans[latest_day]
+            if latest_value is None or latest_value <= 0:
                 logger.debug(f"Skipping inactive member (left club or not in club): {trainer_name} (ID: {viewer_id})")
                 continue
 
-            current_day_lifetime_fans = current_day_lifetime_raw
-            viewer_id_str = str(viewer_id)
+            join_day, baseline = self._resolve_join_and_baseline(lifetime_fans, latest_day)
 
-            # Detect join day (first positive day they appear in this club) and starting lifetime baseline.
-            # In uma.moe API, negative numbers represent days spent in previous clubs, 0 means no record,
-            # and positive numbers represent active days in the current club.
-            join_day = 1
-            starting_lifetime_fans = 0
-
-            for idx, fans_val in enumerate(lifetime_fans[:current_day], start=1):
-                if fans_val is not None and fans_val > 0:
-                    join_day = idx
-                    starting_lifetime_fans = fans_val
-                    break
-
-            # Convert lifetime cumulative fans to monthly cumulative fans in this club
-            # Days before join_day (<= 0) contribute 0.
+            # Lifetime -> fans gained in this club this month, aligned with Chrono (index d-1 = day d).
             monthly_fans = []
-            for day_idx in range(current_day):
-                raw_fans = lifetime_fans[day_idx]
-                if raw_fans is None or raw_fans <= 0:
-                    fans_this_month = 0
+            for day in range(1, latest_day + 1):
+                value = lifetime_fans[day]
+                if day < join_day or value is None or value <= 0:
+                    monthly_fans.append(0)
                 else:
-                    fans_this_month = raw_fans - starting_lifetime_fans if raw_fans >= starting_lifetime_fans else 0
+                    monthly_fans.append(max(value - baseline, 0))
 
-                monthly_fans.append(fans_this_month)
-
-            # Day 1 endpoint correction
-            if endpoint_totals and viewer_id_str in endpoint_totals:
-                endpoint_lifetime = abs(endpoint_totals[viewer_id_str])
-                if endpoint_lifetime >= starting_lifetime_fans:
-                    corrected_monthly = endpoint_lifetime - starting_lifetime_fans
-                    if corrected_monthly > monthly_fans[-1]:
-                        logger.debug(
-                            f"Endpoint correction for {trainer_name}: "
-                            f"{monthly_fans[-1]:,} → {corrected_monthly:,} "
-                            f"(+{corrected_monthly - monthly_fans[-1]:,} recovered)"
-                        )
-                        monthly_fans[-1] = corrected_monthly
-                else:
-                    logger.warning(
-                        f"Endpoint correction skipped for {trainer_name}: "
-                        f"endpoint lifetime ({endpoint_lifetime:,}) < starting ({starting_lifetime_fans:,})"
-                    )
-
+            viewer_id_str = str(viewer_id)
             parsed_data[viewer_id_str] = {
                 "name": trainer_name,
                 "trainer_id": viewer_id_str,
@@ -449,7 +421,7 @@ class UmaGitHubScraper(BaseScraper):
 
             logger.debug(
                 f"Parsed {trainer_name}: joined day {join_day}, "
-                f"lifetime: {starting_lifetime_fans:,} → {current_day_lifetime_fans:,}, "
+                f"lifetime: {baseline:,} -> {latest_value:,}, "
                 f"monthly: {monthly_fans[-1]:,}"
             )
 

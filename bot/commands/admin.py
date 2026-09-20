@@ -4,7 +4,8 @@ Administrative commands for quota management
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import datetime
+from datetime import datetime, date
+from typing import Optional
 import logging
 import pytz
 import asyncio
@@ -84,10 +85,10 @@ class AdminCommands(commands.Cog):
             logger.error(f"Error updating monthly info board: {e}")
         return False
 
-    @app_commands.command(name="quota", description="Set the daily quota requirement")
+    @app_commands.command(name="quota", description="Set the daily quota requirement (with optional effective day)")
     @is_admin_or_authorized()
-    async def set_quota(self, interaction: discord.Interaction, amount: int, club: str):
-        """Set the daily quota requirement"""
+    async def set_quota(self, interaction: discord.Interaction, amount: int, club: str, effective_day: Optional[int] = None):
+        """Set the daily quota requirement with optional effective day in current month"""
         await interaction.response.defer()
 
         try:
@@ -106,15 +107,62 @@ class AdminCommands(commands.Cog):
 
             club_tz = pytz.timezone(club_obj.timezone)
             current_datetime = datetime.now(club_tz)
-            current_date = current_datetime.date()
+            today = current_datetime.date()
+
+            import calendar
+            max_days = calendar.monthrange(today.year, today.month)[1]
+            if effective_day is not None:
+                if not (1 <= effective_day <= max_days):
+                    await interaction.followup.send(f"❌ Invalid effective_day `{effective_day}`. Must be between 1 and {max_days} for this month.")
+                    return
+                effective_date = date(today.year, today.month, effective_day)
+            else:
+                effective_date = today
 
             set_by = str(interaction.user)
+
+            # 1. Create or overwrite quota requirement for effective_date
             await QuotaRequirement.create(
                 club_id=club_obj.club_id,
-                effective_date=current_date,
+                effective_date=effective_date,
                 daily_quota=amount,
                 set_by=set_by
             )
+
+            # 2. Sync base club settings
+            await club_obj.update_settings(daily_quota=amount)
+
+            # 3. Retroactively recalculate member history if effective date <= today
+            recalculated = False
+            recalc_count = 0
+            if effective_date <= today:
+                from models import Member
+                from services import QuotaCalculator
+                from config.database import db
+
+                members = await Member.get_all_active(club_obj.club_id)
+                calc = QuotaCalculator()
+
+                query = """
+                    SELECT effective_date, daily_quota
+                    FROM quota_requirements
+                    WHERE club_id = $1
+                    ORDER BY effective_date ASC
+                """
+                rows = await db.fetch(query, club_obj.club_id)
+                pre_fetched = [(r['effective_date'], r['daily_quota']) for r in rows]
+
+                for member in members:
+                    await calc._recalculate_member_history(
+                        member=member,
+                        club_id=club_obj.club_id,
+                        current_date=today,
+                        quota_period=club_obj.quota_period,
+                        pre_fetched_requirements=pre_fetched,
+                        default_quota=amount
+                    )
+                recalculated = True
+                recalc_count = len(members)
 
             if amount >= 1_000_000:
                 formatted = f"{amount / 1_000_000:.1f}M"
@@ -135,7 +183,7 @@ class AdminCommands(commands.Cog):
 
             embed.add_field(
                 name="Effective Date",
-                value=current_date.strftime('%Y-%m-%d'),
+                value=effective_date.strftime('%Y-%m-%d'),
                 inline=True
             )
 
@@ -151,17 +199,24 @@ class AdminCommands(commands.Cog):
                 inline=True
             )
 
-            embed.add_field(
-                name="ℹ️ Important",
-                value="This quota applies from today onwards. Previous days are unaffected.",
-                inline=False
-            )
+            if recalculated:
+                embed.add_field(
+                    name="🔄 History Recalculation",
+                    value=f"✅ Recalculated expected fans and deficits for **{recalc_count} active members** for {today.strftime('%B %Y')}.",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="ℹ️ Scheduled",
+                    value=f"Quota is scheduled to take effect on **{effective_date.strftime('%Y-%m-%d')}**.",
+                    inline=False
+                )
 
             await interaction.followup.send(embed=embed)
-            logger.info(f"Quota set to {amount:,} for {club} by {set_by} effective {current_date}")
+            logger.info(f"Quota set to {amount:,} for {club} by {set_by} effective {effective_date} (recalculated={recalculated})")
 
             # Auto-update monthly info board
-            updated = await self._update_monthly_info_board(club_obj, current_date)
+            updated = await self._update_monthly_info_board(club_obj, today)
             if updated:
                 await interaction.followup.send("✅ Monthly info board auto-updated!", ephemeral=True)
 

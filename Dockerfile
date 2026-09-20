@@ -6,6 +6,7 @@ ENV PYTHONUNBUFFERED=1 \
 # Install runtime dependencies for data visualization if needed
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

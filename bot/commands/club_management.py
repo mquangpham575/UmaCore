@@ -477,19 +477,10 @@ class ClubManagementCommands(commands.Cog):
                     getattr(club, 'quota_period', 'daily'), 'day'
                 )
                 
-                # Scraper type indicator
-                source_desc = "ChronoGenesis" if not club.circle_id else "Chrono (via circle_id)"
-                scraper_info = f"\n**Scraper:** {source_desc}"
-
-                # Bomb status indicator
-                bomb_status = "Enabled ✅" if club.bombs_enabled else "Disabled ❌"
-
                 embed.add_field(
                     name=f"{status} {club.club_name}",
                     value=f"**Quota:** {quota_formatted} fans/{period_label}\n"
-                          f"**Schedule:** {club.get_scrape_time_str()} {club.timezone}"
-                          f"{scraper_info}\n"
-                          f"**Bombs:** {bomb_status}",
+                          f"**Schedule:** {club.get_scrape_time_str()} {club.timezone}",
                     inline=False
                 )
             
@@ -510,7 +501,6 @@ class ClubManagementCommands(commands.Cog):
                        club: str,
                        new_name: str = None,
                        circle_id: str = None,
-                       daily_quota: int = None,
                        quota_period: app_commands.Choice[str] = None,
                        scrape_time: str = None,
                        timezone: str = None,
@@ -559,8 +549,6 @@ class ClubManagementCommands(commands.Cog):
                 updates['club_name'] = new_name_clean
             if circle_id is not None:
                 updates['circle_id'] = circle_id if circle_id != "" else None
-            if daily_quota is not None:
-                updates['daily_quota'] = daily_quota
             if quota_period is not None:
                 updates['quota_period'] = quota_period.value
             if scrape_time is not None:
@@ -599,21 +587,6 @@ class ClubManagementCommands(commands.Cog):
 
             await club_obj.update_settings(**updates)
 
-            # If daily_quota was changed, write a quota_requirement effective today
-            # so the change actually takes effect (matches /quota semantics).
-            # Without this, existing quota_requirements rows shadow the club default
-            # and the edit appears to do nothing.
-            if 'daily_quota' in updates:
-                from models import QuotaRequirement
-                club_tz = pytz.timezone(club_obj.timezone)
-                today = datetime.now(club_tz).date()
-                await QuotaRequirement.create(
-                    club_id=club_obj.club_id,
-                    effective_date=today,
-                    daily_quota=updates['daily_quota'],
-                    set_by=str(interaction.user)
-                )
-
             embed = discord.Embed(
                 title="✅ Club Settings Updated",
                 description=f"Successfully updated **{club_obj.club_name}**",
@@ -636,18 +609,10 @@ class ClubManagementCommands(commands.Cog):
                     changes_text.append(f"**Club Name:** {club} ➔ {value}")
                 elif key == 'circle_id':
                     if value:
-                        source_desc = "Chrono (via circle_id)"
+                        source_desc = "Uma.moe" if "uma.moe" in (club_obj.scrape_url or "").lower() else "Chrono"
                         changes_text.append(f"**Circle ID:** {value} (Scraper: {source_desc})")
                     else:
-                        changes_text.append("**Circle ID:** Removed (will use ChronoGenesis)")
-                elif key == 'daily_quota':
-                    if value >= 1_000_000:
-                        formatted = f"{value / 1_000_000:.1f}M"
-                    elif value >= 1_000:
-                        formatted = f"{value / 1_000:.1f}K"
-                    else:
-                        formatted = str(value)
-                    changes_text.append(f"**Quota:** {formatted} fans per {period_label}")
+                        changes_text.append("**Circle ID:** Removed")
                 elif key == 'quota_period':
                     period_names = {'daily': 'Daily', 'weekly': 'Weekly', 'biweekly': 'Biweekly'}
                     changes_text.append(f"**Quota Period:** {period_names.get(value, value)}")

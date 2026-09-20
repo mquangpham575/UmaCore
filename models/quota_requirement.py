@@ -23,14 +23,20 @@ class QuotaRequirement:
     
     @classmethod
     async def create(cls, club_id: UUID, effective_date: date, daily_quota: int, set_by: str = None) -> 'QuotaRequirement':
-        """Create a new quota requirement"""
+        """Create or update a quota requirement for a specific date (idempotent upsert)"""
+        # Delete any existing requirement on the exact same effective date to prevent duplicates
+        await db.execute(
+            "DELETE FROM quota_requirements WHERE club_id = $1 AND effective_date = $2",
+            club_id, effective_date
+        )
+
         query = """
             INSERT INTO quota_requirements (club_id, effective_date, daily_quota, set_by)
             VALUES ($1, $2, $3, $4)
             RETURNING id, club_id, effective_date, daily_quota, set_by
         """
         row = await db.fetchrow(query, club_id, effective_date, daily_quota, set_by)
-        logger.info(f"Quota requirement created for club {club_id}: {daily_quota:,} fans/day effective {effective_date} (set by {set_by})")
+        logger.info(f"Quota requirement set for club {club_id}: {daily_quota:,} fans/day effective {effective_date} (set by {set_by})")
         return cls(**dict(row))
     
     @classmethod
