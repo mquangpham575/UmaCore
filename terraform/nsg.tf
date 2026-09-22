@@ -24,6 +24,34 @@ resource "azurerm_network_security_group" "main" {
     description                = "SSH access — restrict via allowed_ssh_cidr variable"
   }
 
+  # ---- HTTP (port 80) — Let's Encrypt ACME challenge for Caddy -------------
+  security_rule {
+    name                       = "allow-http"
+    priority                   = 110
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "80"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+    description                = "HTTP — jplearn backend (Caddy ACME + redirect to HTTPS)"
+  }
+
+  # ---- HTTPS (port 443) — jplearn backend API -------------------------------
+  security_rule {
+    name                       = "allow-https"
+    priority                   = 120
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+    description                = "HTTPS — jplearn backend API, reverse-proxied by Caddy"
+  }
+
   # ---- Deny all inbound ----------------------------------------------------
   security_rule {
     name                       = "deny-all-inbound"
