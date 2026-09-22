@@ -108,6 +108,10 @@ resource "azurerm_linux_virtual_machine" "main" {
     caching              = "ReadWrite"
     storage_account_type = "StandardSSD_LRS"
     disk_size_gb         = 30
+    # Detach (not delete) the OS disk if this VM resource is ever replaced/recreated by
+    # a future terraform apply. Without this, replacing the VM silently destroys the disk
+    # and every byte of production data on it - which is what caused the Sep 2026 wipe.
+    delete_option        = "Detach"
   }
 
   source_image_reference {

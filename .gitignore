@@ -271,3 +271,6 @@ preview_chart.py
 VPS_SETUP.md
 # Local test-bot launcher (contains a real token/DB URL, never commit)
 run_test_bot.ps1
+
+# Local off-VM DB backups (real production data, never commit)
+backups/

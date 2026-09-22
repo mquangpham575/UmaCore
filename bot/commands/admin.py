@@ -53,6 +53,36 @@ class AdminCommands(commands.Cog):
             logger.error(f"Error in club autocomplete: {e}")
             return []
 
+    async def quota_entry_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete listing this club's existing quota requirement entries (current month), to pick one to delete"""
+        try:
+            club_name = interaction.namespace.club
+            if not club_name:
+                return []
+            club_obj = await Club.get_by_name(club_name)
+            if not club_obj or not club_obj.belongs_to_guild(interaction.guild_id):
+                return []
+
+            club_tz = pytz.timezone(club_obj.timezone)
+            today = datetime.now(club_tz).date()
+            entries = await QuotaRequirement.get_all_current_month(club_obj.club_id, today)
+
+            choices = []
+            for entry in entries:
+                if entry.daily_quota >= 1_000_000:
+                    formatted = f"{entry.daily_quota / 1_000_000:.1f}M"
+                elif entry.daily_quota >= 1_000:
+                    formatted = f"{entry.daily_quota / 1_000:.1f}K"
+                else:
+                    formatted = str(entry.daily_quota)
+                label = f"{entry.effective_date.strftime('%Y-%m-%d')} — {formatted} fans/day"
+                if current.lower() in label.lower():
+                    choices.append(app_commands.Choice(name=label, value=entry.effective_date.isoformat()))
+            return choices[:25]
+        except Exception as e:
+            logger.error(f"Error in quota_entry autocomplete: {e}")
+            return []
+
     async def _update_monthly_info_board(self, club_obj: Club, current_date) -> bool:
         """Auto-update the monthly info board after quota changes"""
         try:
@@ -361,10 +391,11 @@ class AdminCommands(commands.Cog):
             logger.error(f"Error in quota_history: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
-    @app_commands.command(name="delete_quota", description="Delete a specific quota requirement entry by date and amount")
+    @app_commands.command(name="delete_quota", description="Delete one of a club's quota requirement entries")
+    @app_commands.describe(quota_entry="Pick the quota entry to delete")
     @is_admin_or_authorized()
-    async def delete_quota(self, interaction: discord.Interaction, club: str, date: str, amount: int):
-        """Delete a specific quota requirement entry (use /quota_history to find the values)"""
+    async def delete_quota(self, interaction: discord.Interaction, club: str, quota_entry: str):
+        """Delete a specific quota requirement entry, picked from this club's existing entries"""
         await interaction.response.defer()
 
         try:
@@ -378,18 +409,28 @@ class AdminCommands(commands.Cog):
                 return
 
             try:
-                effective_date = datetime.strptime(date, "%Y-%m-%d").date()
+                effective_date = datetime.strptime(quota_entry, "%Y-%m-%d").date()
             except ValueError:
-                await interaction.followup.send("❌ Invalid date format. Use YYYY-MM-DD")
+                await interaction.followup.send(
+                    "❌ Couldn't read that quota entry. Pick one from the autocomplete list instead of typing it manually."
+                )
                 return
 
-            deleted = await QuotaRequirement.delete_by_date_and_amount(
-                club_obj.club_id, effective_date, amount
-            )
+            # Look the entry up first so we can report exactly what's being removed
+            entry = await QuotaRequirement.get_by_effective_date(club_obj.club_id, effective_date)
+            if not entry:
+                await interaction.followup.send(
+                    f"❌ No quota requirement found for **{club}** on `{effective_date.strftime('%Y-%m-%d')}`. "
+                    f"It may have already been deleted — use `/quota_history` to check."
+                )
+                return
+
+            amount = entry.daily_quota
+            deleted = await QuotaRequirement.delete_by_date(club_obj.club_id, effective_date)
 
             if deleted == 0:
                 await interaction.followup.send(
-                    f"❌ No quota requirement found for **{club}** on `{date}` with amount `{amount:,}`. "
+                    f"❌ No quota requirement found for **{club}** on `{effective_date.strftime('%Y-%m-%d')}`. "
                     f"Use `/quota_history` to see existing entries."
                 )
                 return
@@ -401,9 +442,11 @@ class AdminCommands(commands.Cog):
             else:
                 formatted = str(amount)
 
+            date_str = effective_date.strftime('%Y-%m-%d')
+
             embed = discord.Embed(
                 title=f"✅ Quota Entry Deleted - {club}",
-                description=f"Removed **{formatted} fans/day** effective `{date}`",
+                description=f"Removed **{formatted} fans/day** effective `{date_str}`",
                 color=discord.Color.orange(),
                 timestamp=discord.utils.utcnow()
             )
@@ -416,7 +459,7 @@ class AdminCommands(commands.Cog):
             embed.set_footer(text=f"Deleted by {interaction.user}")
 
             await interaction.followup.send(embed=embed)
-            logger.info(f"Quota entry deleted for {club} ({amount:,} on {date}) by {interaction.user}")
+            logger.info(f"Quota entry deleted for {club} ({amount:,} on {date_str}) by {interaction.user}")
 
             await self._update_monthly_info_board(club_obj, effective_date)
 
@@ -936,6 +979,7 @@ class AdminCommands(commands.Cog):
     update_monthly_info.autocomplete('club')(club_autocomplete)
     quota_history.autocomplete('club')(club_autocomplete)
     delete_quota.autocomplete('club')(club_autocomplete)
+    delete_quota.autocomplete('quota_entry')(quota_entry_autocomplete)
     force_check.autocomplete('club')(club_autocomplete)
     add_member.autocomplete('club')(club_autocomplete)
     deactivate_member.autocomplete('club')(club_autocomplete)

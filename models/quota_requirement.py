@@ -105,13 +105,24 @@ class QuotaRequirement:
         return await cls.get_all_for_month(club_id, current_date.year, current_date.month)
     
     @classmethod
-    async def delete_by_date_and_amount(cls, club_id: UUID, effective_date: date, daily_quota: int) -> int:
-        """Delete a specific quota requirement by date and amount. Returns number of rows deleted."""
+    async def get_by_effective_date(cls, club_id: UUID, effective_date: date) -> Optional['QuotaRequirement']:
+        """Get the quota requirement entry set for this exact effective date, if one exists."""
+        query = """
+            SELECT id, club_id, effective_date, daily_quota, set_by
+            FROM quota_requirements
+            WHERE club_id = $1 AND effective_date = $2
+        """
+        row = await db.fetchrow(query, club_id, effective_date)
+        return cls(**dict(row)) if row else None
+
+    @classmethod
+    async def delete_by_date(cls, club_id: UUID, effective_date: date) -> int:
+        """Delete the quota requirement entry on this exact effective date. Returns number of rows deleted."""
         query = """
             DELETE FROM quota_requirements
-            WHERE club_id = $1 AND effective_date = $2 AND daily_quota = $3
+            WHERE club_id = $1 AND effective_date = $2
         """
-        result = await db.execute(query, club_id, effective_date, daily_quota)
+        result = await db.execute(query, club_id, effective_date)
         count = int(result.split()[-1])
-        logger.info(f"Deleted {count} quota requirement(s) for club {club_id}: {daily_quota:,} fans/day on {effective_date}")
+        logger.info(f"Deleted {count} quota requirement(s) for club {club_id} on {effective_date}")
         return count
