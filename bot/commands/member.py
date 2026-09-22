@@ -637,7 +637,15 @@ class MemberCommands(commands.Cog):
                 return
 
             club_tz = pytz.timezone(club_obj.timezone)
-            current_date = datetime.now(club_tz).date()
+
+            # Use the actual latest data date in the DB instead of the wall-clock today -
+            # this command reads cached data, so the label should match what's actually
+            # being shown rather than whatever day it happens to be when someone runs it.
+            last_run_utc = await QuotaHistory.get_last_run_time(club_obj.club_id)
+            if last_run_utc:
+                current_date = await QuotaHistory.get_latest_data_date(club_obj.club_id)
+            else:
+                current_date = datetime.now(club_tz).date()
 
             # Process cached data from DB
             status_summary = await self.quota_calculator.get_member_status_summary(
@@ -666,7 +674,8 @@ class MemberCommands(commands.Cog):
             effective_quota = await QuotaRequirement.get_quota_for_date(club_obj.club_id, current_date)
             daily_reports = self.report_generator.create_daily_report(
                 club_obj.club_name, effective_quota, status_summary, bombs_data, current_date,
-                rank_data=rank_data, quota_period=club_obj.quota_period
+                rank_data=rank_data, quota_period=club_obj.quota_period,
+                current_day=current_date.day
             )
 
             # Send all report embeds in the interaction reply
@@ -1201,7 +1210,8 @@ async def pre_render_and_cache_leaderboard(bot, club_id: str = None, guild_id: i
                     os.remove(os.path.join(cache_dir, f))
                 except Exception:
                     pass
-        for page_idx in range(total_pages):
+
+        for page_idx in range(total_pages):
             start_idx = page_idx * 10
             end_idx = start_idx + 10
             page_data = leaderboard_data[start_idx:end_idx]
