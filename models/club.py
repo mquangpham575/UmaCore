@@ -6,6 +6,7 @@ from datetime import time
 from typing import Optional, List
 from uuid import UUID
 import logging
+import re
 
 from config.database import db
 
@@ -103,20 +104,6 @@ class Club:
                    monthly_info_message_id, created_at, updated_at
             FROM clubs
             WHERE is_active = TRUE
-            ORDER BY club_name
-        """
-        rows = await db.fetch(query)
-        return [cls(**dict(row)) for row in rows]
-    
-    @classmethod
-    async def get_all(cls) -> List['Club']:
-        """Get all clubs (active and inactive)"""
-        query = """
-            SELECT club_id, club_name, scrape_url, circle_id, guild_id, daily_quota, quota_period,
-                   timezone, scrape_time, bomb_trigger_days, bomb_countdown_days, bombs_enabled,
-                   is_active, report_channel_id, alert_channel_id, monthly_info_channel_id,
-                   monthly_info_message_id, created_at, updated_at
-            FROM clubs
             ORDER BY club_name
         """
         rows = await db.fetch(query)
@@ -329,30 +316,31 @@ class Club:
         if isinstance(self.scrape_time, time):
             return self.scrape_time.strftime('%H:%M')
         return str(self.scrape_time)
-    
-    def is_circle_id_valid(self) -> bool:
-        """Check if circle_id is in the correct numeric format for Uma.moe API"""
-        if not self.circle_id:
-            return False
-        return self.circle_id.isdigit()
-    
-    def get_uma_moe_url(self) -> str:
-        """Get the Uma.moe URL for this club"""
-        if self.circle_id and self.circle_id.isdigit():
-            return f"https://uma.moe/circles/{self.circle_id}"
-        return "https://uma.moe/circles/"
-    
-    def get_circle_id_help_message(self) -> str:
-        """Get helpful error message for invalid circle_id"""
+
+    def resolve_circle_id(self) -> Optional[str]:
+        """Numeric circle_id for this club.
+
+        Falls back to parsing it out of scrape_url for clubs that were created before
+        circle_id was stored in its own column.
+        """
+        if self.circle_id:
+            return self.circle_id
+        for pattern in (r'circle_id=(\d+)', r'circles/(\d+)'):
+            match = re.search(pattern, self.scrape_url or '')
+            if match:
+                return match.group(1)
+        return None
+
+    @staticmethod
+    def invalid_circle_id_message(circle_id: str, club_name: str, extra: str = "") -> str:
+        """Discord message explaining that circle_id must be the numeric Uma.moe ID."""
         return (
-            f"⚠️ **Invalid Circle ID for {self.club_name}**\n\n"
-            f"The circle_id must be a **numeric ID** from Uma.moe, not a club name.\n\n"
-            f"**How to find your Circle ID:**\n"
+            f"❌ Invalid Circle ID format: `{circle_id}`\n\n"
+            f"The circle_id must be a **numeric ID** from Uma.moe.\n\n"
+            f"**How to find it:**\n"
             f"1. Go to https://uma.moe/circles/\n"
-            f"2. Search for your club: **{self.club_name}**\n"
-            f"3. Click on your club\n"
-            f"4. Copy the **number** at the end of the URL\n"
-            f"   Example: `https://uma.moe/circles/860280110` → Circle ID is `860280110`\n\n"
-            f"**To fix this:**\n"
-            f"Use `/edit_club club:{self.club_name} circle_id:<numeric_id>`"
+            f"2. Search for **{club_name}**\n"
+            f"3. Click on it and copy the **number** from the URL\n"
+            f"   Example: `https://uma.moe/circles/860280110` → use `860280110`"
+            f"{extra}"
         )

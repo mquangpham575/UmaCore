@@ -15,7 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.database import db
 from config.settings import DATABASE_URL
 from models import Club
-from scrapers import UmaGitHubScraper
+from scrapers import ClubScraper
 from services import QuotaCalculator, ScrapeContext
 
 # Setup logging
@@ -31,21 +31,12 @@ async def scrape_club(club: Club, quota_calculator: QuotaCalculator):
     
     try:
         async with ScrapeContext(club.club_id, "bulk_sync_utility"):
-            # Select circle_id
-            circle_id = club.circle_id
-            if not circle_id:
-                import re
-                match = re.search(r'circle_id=(\d+)', club.scrape_url)
-                if not match:
-                    match = re.search(r'circles/(\d+)', club.scrape_url)
-                if match:
-                    circle_id = match.group(1)
-            
+            circle_id = club.resolve_circle_id()
             if not circle_id:
                 logger.error(f"Club {club.club_name} missing circle_id and not in scrape_url. Skipping.")
                 return False
 
-            scraper = UmaGitHubScraper(circle_id)
+            scraper = ClubScraper(circle_id)
             scraped_data = await scraper.scrape()
             current_day = scraper.get_current_day()
             

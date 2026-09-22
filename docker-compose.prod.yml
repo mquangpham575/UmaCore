@@ -41,7 +41,6 @@ services:
       - DATABASE_URL=postgresql://umacore:${POSTGRES_PASSWORD}@postgres:5432/umacore
     volumes:
       - ./logs:/app/logs
-      - ./debug:/app/debug
     deploy:
       resources:
         limits:

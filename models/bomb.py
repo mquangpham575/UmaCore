@@ -111,10 +111,3 @@ class Bomb:
         count = int(result.split()[-1]) if result.split()[-1].isdigit() else 0
         logger.info(f"Deactivated {count} bombs for club {club_id} (bombs disabled)")
         return count
-
-    @classmethod
-    async def clear_all(cls, club_id: UUID):
-        """Clear all bombs for a club (for monthly reset)"""
-        query = "DELETE FROM bombs WHERE club_id = $1"
-        await db.execute(query, club_id)
-        logger.info(f"Cleared all bombs for club {club_id} (monthly reset)")

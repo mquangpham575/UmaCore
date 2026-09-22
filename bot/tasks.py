@@ -9,7 +9,7 @@ import pytz
 import asyncio
 
 from models import Club, Member, QuotaRequirement, QuotaHistory
-from scrapers import UmaGitHubScraper
+from scrapers import ClubScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, NotificationService, ScrapeLockManager, ScrapeContext
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ class BotTasks:
         # Track last run per club per day (club_id_YYYY-MM-DD -> True)
         self.last_runs = {}
         
-        # Limit parallel browser instances to prevent CPU/RAM crashes (max 5 at once)
+        # Limit parallel scrapes to avoid hammering the data APIs (max 5 at once)
         self.scrape_semaphore = asyncio.Semaphore(5)
 
         logger.info("Multi-club tasks configured - will check all clubs hourly")
@@ -101,8 +101,8 @@ class BotTasks:
 
     async def daily_check_for_club(self, club: Club):
         # Coordinates the daily scraping, processing, and reporting for a club.
-        logger.info(f"⏳ {club.club_name} queued (waiting for browser slot)...")
-        # Limit parallel browser instances using a semaphore
+        logger.info(f"⏳ {club.club_name} queued (waiting for scrape slot)...")
+        # Limit parallel scrapes using a semaphore
         async with self.scrape_semaphore:
             # Add random jitter to spread out concurrent club scrapes (0-10 seconds)
             import random
@@ -144,50 +144,25 @@ class BotTasks:
                     current_date = current_datetime.date()
 
                     max_retries = 3
-                    retry_delay = 10
-
                     scraped_data = None
                     current_day = None
                     last_error = None
 
                     # STEP 1: Initialize Scraper
-                    circle_id = club.circle_id
-                    if not circle_id:
-                        import re
-                        match = re.search(r'circle_id=(\d+)', club.scrape_url)
-                        if not match:
-                            match = re.search(r'circles/(\d+)', club.scrape_url)
-                        if match:
-                            circle_id = match.group(1)
-                    
+                    circle_id = club.resolve_circle_id()
                     if not circle_id:
                         logger.error(f"Club {club.club_name} missing circle_id and not in scrape_url")
-                        # Fallback to name if possible, but circle_id is preferred
-                    
-                    scraper = UmaGitHubScraper(circle_id)
-                    logger.info(f"Using GitHub data scraper for {club.club_name} (circle_id: {circle_id})")
+
+                    scraper = ClubScraper(circle_id)
 
                     # STEP 2: Scrape with retries
-                    for attempt in range(1, max_retries + 1):
-                        try:
-                            logger.info(f"🔍 Scraping {club.club_name} (attempt {attempt}/{max_retries})...")
-                            scraped_data = await scraper.scrape()
-                            current_day = scraper.get_current_day()
-
-                            if scraped_data:
-                                logger.info(f"✅ Scraping successful for {club.club_name} ({len(scraped_data)} members found, source: {scraper.get_data_source()})")
-                                break
-                            else:
-                                raise ValueError("Scraper returned empty data")
-
-                        except Exception as e:
-                            last_error = e
-                            logger.error(f"❌ Scraping failed for {club.club_name} (attempt {attempt}/{max_retries}): {e}")
-
-                            if attempt < max_retries:
-                                logger.info(f"Retrying in {retry_delay} seconds...")
-                                await asyncio.sleep(retry_delay)
-                                retry_delay *= 2
+                    try:
+                        scraped_data = await scraper.scrape_with_retry(
+                            max_retries=max_retries, retry_delay=10, label=club.club_name
+                        )
+                        current_day = scraper.get_current_day()
+                    except Exception as e:
+                        last_error = e
 
                     # STEP 3: Handle scraping failure
                     if not scraped_data:
@@ -332,7 +307,7 @@ class BotTasks:
                             current_day=current_day
                         )
 
-                        await report_channel.send(f"*(You can see your own Status with /my_status with additional information.)*")
+                        await report_channel.send("*(You can see your own Status with /my_status with additional information.)*")
                         for embed in daily_reports:
                             await report_channel.send(embed=embed)
 

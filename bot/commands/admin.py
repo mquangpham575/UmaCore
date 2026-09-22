@@ -8,9 +8,8 @@ from datetime import datetime, date
 from typing import Optional
 import logging
 import pytz
-import asyncio
 
-from scrapers import UmaGitHubScraper
+from scrapers import ClubScraper
 from services import QuotaCalculator, BombManager, ReportGenerator, MonthlyInfoService
 from models import Member, QuotaRequirement, Club
 from bot.decorators import is_admin_or_authorized
@@ -480,45 +479,26 @@ class AdminCommands(commands.Cog):
             current_date = current_datetime.date()
 
             # Select scraper
-            circle_id = club_obj.circle_id
-            if not circle_id:
-                import re
-                match = re.search(r'circle_id=(\d+)', club_obj.scrape_url)
-                if not match:
-                    match = re.search(r'circles/(\d+)', club_obj.scrape_url)
-                if match:
-                    circle_id = match.group(1)
-            
-            # Scrape with retry logic using the GitHub scraper.
-            scraper = UmaGitHubScraper(circle_id)
-            # Removed preparing data scraper message
-            logger.info(f"Using UmaGitHubScraper for {club_obj.club_name}")
+            circle_id = club_obj.resolve_circle_id()
+            scraper = ClubScraper(circle_id)
+            logger.info(f"Using ClubScraper for {club_obj.club_name}")
 
             # Scrape with retry logic
             max_retries = 3
-            retry_delay = 5
             scraped_data = None
             current_day = None
             last_error = None
 
-            for attempt in range(1, max_retries + 1):
-                try:
-                    # Removed progress message: Scraping attempt...
-                    scraped_data = await scraper.scrape()
-                    current_day = scraper.get_current_day()
+            async def notify_retry(attempt: int, error: Exception, delay: float):
+                await interaction.followup.send(f"⚠️ Attempt {attempt} failed: {error}. Retrying in {delay}s...")
 
-                    if scraped_data:
-                        # Removed data source message
-                        break
-                    else:
-                        raise ValueError("Scraper returned empty data")
-                except Exception as e:
-                    last_error = e
-                    if attempt == max_retries:
-                        break
-                    await interaction.followup.send(f"⚠️ Attempt {attempt} failed: {str(e)}. Retrying in {retry_delay}s...")
-                    await asyncio.sleep(retry_delay)
-                    retry_delay *= 2
+            try:
+                scraped_data = await scraper.scrape_with_retry(
+                    max_retries=max_retries, retry_delay=5, label=club_obj.club_name, on_retry=notify_retry
+                )
+                current_day = scraper.get_current_day()
+            except Exception as e:
+                last_error = e
 
             if not scraped_data:
                 error_msg = (
@@ -546,8 +526,6 @@ class AdminCommands(commands.Cog):
                 rank_data = None
 
             # Process scraped data
-            # Removed processing data message
-            
             # Log parsed data summary to console
             logger.info(f"--- PARSED DATA SUMMARY FOR {club} ---")
             for tid, info in list(scraped_data.items())[:5]: # Show first 5 members
@@ -601,7 +579,7 @@ class AdminCommands(commands.Cog):
                 current_day=current_day
             )
 
-            await report_channel.send(f"*(You can see your own Status with /my_status with additional information.)*")
+            await report_channel.send("*(You can see your own Status with /my_status with additional information.)*")
             for embed in daily_reports:
                 await report_channel.send(embed=embed)
 
@@ -857,6 +835,8 @@ class AdminCommands(commands.Cog):
             )
             pre_fetched = [(r['effective_date'], r['daily_quota']) for r in req_rows]
 
+            members = await Member.get_all_active(club_obj.club_id)
+            updated_entries = 0
             for member in members:
                 await self.quota_calculator._recalculate_member_history(
                     member, club_obj.club_id, current_date, club_obj.quota_period,

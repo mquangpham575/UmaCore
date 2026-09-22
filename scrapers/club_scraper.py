@@ -1,7 +1,8 @@
 """
-Uma.moe API scraper for club data fetching
+Club data scraper: ChronoGenesis API first, with the Uma.moe API as an independent fallback.
 """
-from typing import Dict, Optional, List
+from typing import Dict, Optional
+import asyncio
 import logging
 import calendar
 import aiohttp
@@ -16,8 +17,12 @@ from scrapers.base_scraper import BaseScraper
 logger = logging.getLogger(__name__)
 
 
-class UmaGitHubScraper(BaseScraper):
-    """Scraper using Chrono API for direct data retrieval (Legacy name kept for compatibility)"""
+class ClubScraper(BaseScraper):
+    """Fetches club member fan data from ChronoGenesis, falling back to Uma.moe.
+
+    Both sources are normalised to the same shape, ``{trainer_id: {name, trainer_id, fans,
+    join_day, join_day_reliable}}``, where ``fans[d - 1]`` is the fans gained this month through day ``d``.
+    """
 
     def __init__(self, circle_id: str):
         self.circle_id = circle_id
@@ -63,10 +68,6 @@ class UmaGitHubScraper(BaseScraper):
         except Exception as e:
             logger.warning(f"Error fetching from Chrono API: {e}")
             return None
-
-    async def _fetch_remote_raw_data(self, session: aiohttp.ClientSession) -> Optional[dict]:
-        """Alias for _fetch_chrono_data for compatibility."""
-        return await self._fetch_chrono_data(session)
 
     async def _fetch_umamoe_data(self, session: aiohttp.ClientSession, year: int, month: int) -> Optional[dict]:
         """Fetch circle tracking JSON from Uma.moe API as a fallback."""
@@ -235,18 +236,11 @@ class UmaGitHubScraper(BaseScraper):
             try:
                 chrono_data = await self._fetch_chrono_data(session)
                 if chrono_data:
-                    self._raw_response = chrono_data
                     self._data_source = "chrono_api"
                     logger.info(f"Using Chrono API data for circle {self.circle_id}")
 
                     if "club_friend_history" in chrono_data or "club_daily_history" in chrono_data:
                         return self._parse_tracker_raw_data(chrono_data)
-                    elif "members" in chrono_data:
-                        now = datetime.now()
-                        self._fetched_year, self._fetched_month = now.year, now.month
-                        parsed_data = self._parse_api_data(chrono_data.get("members", []), calendar_day=now.day)
-                        logger.info(f"Successfully parsed {len(parsed_data)} active members from Chrono format")
-                        return parsed_data
                     else:
                         errors.append("Chrono API returned unsupported data format")
                 else:
@@ -270,7 +264,6 @@ class UmaGitHubScraper(BaseScraper):
 
                 umamoe_data = await self._fetch_umamoe_data(session, fetch_year, fetch_month)
                 if umamoe_data and "members" in umamoe_data:
-                    self._raw_response = umamoe_data
                     self._data_source = "umamoe_api"
                     logger.info(f"Using Uma.moe API fallback for circle {self.circle_id} ({fetch_year}-{fetch_month:02d})")
 
@@ -301,6 +294,45 @@ class UmaGitHubScraper(BaseScraper):
         # Both failed
         error_summary = " | ".join(errors)
         raise ValueError(f"All data sources failed for circle {self.circle_id}: {error_summary}")
+
+    async def scrape_with_retry(self, max_retries: int = 3, retry_delay: float = 10,
+                                label: Optional[str] = None, on_retry=None) -> Dict[str, Dict]:
+        """Run :meth:`scrape` with exponential backoff.
+
+        Args:
+            max_retries: Total number of attempts.
+            retry_delay: Seconds to wait after the first failure (doubles after each failure).
+            label: Name used in log lines (defaults to the circle id).
+            on_retry: Optional ``async (attempt, error, delay)`` callback, awaited before each wait.
+
+        Returns:
+            The scraped data.
+
+        Raises:
+            The last error when every attempt fails or returns no data.
+        """
+        name = label or f"circle {self.circle_id}"
+        last_error: Optional[Exception] = None
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(f"🔍 Scraping {name} (attempt {attempt}/{max_retries})...")
+                data = await self.scrape()
+                if not data:
+                    raise ValueError("Scraper returned empty data")
+                logger.info(f"✅ Scraping successful for {name} ({len(data)} members found, source: {self.get_data_source()})")
+                return data
+            except Exception as e:
+                last_error = e
+                logger.error(f"❌ Scraping failed for {name} (attempt {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    if on_retry:
+                        await on_retry(attempt, e, retry_delay)
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
+
+        raise last_error
 
     @staticmethod
     def _latest_populated_day(members: list) -> int:
@@ -451,5 +483,5 @@ class UmaGitHubScraper(BaseScraper):
         return self._yesterday_rank
 
     def get_data_source(self) -> str:
-        """Return the source used for the latest scrape: 'api' or 'github_raw'."""
+        """Return the source used for the latest scrape: 'chrono_api' or 'umamoe_api'."""
         return self._data_source

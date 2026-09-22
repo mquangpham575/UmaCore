@@ -15,11 +15,6 @@ class ReportGenerator:
     """Generates Discord embed reports"""
 
     @staticmethod
-    def format_number(num: int) -> str:
-        """Format number with commas"""
-        return f"{num:,}"
-
-    @staticmethod
     def format_fans_short(num: int) -> str:
         """Format fan count in short form (e.g., 1.5M)"""
         if abs(num) >= 1_000_000:

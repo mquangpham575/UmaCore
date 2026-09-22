@@ -9,7 +9,6 @@ services:
       - .env
     volumes:
       - ./logs:/app/logs
-      - ./debug:/app/debug
     logging:
       driver: "json-file"
       options:

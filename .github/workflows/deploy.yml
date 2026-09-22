@@ -55,11 +55,9 @@ jobs:
           # Create .env on the VM
           $SSH_CMD "cat > /opt/umacore/.env << 'ENVEOF'
           DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }}
-          CHANNEL_ID=${{ secrets.CHANNEL_ID }}
           DATABASE_URL=postgresql://umacore:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/umacore
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
           LOG_LEVEL=${{ secrets.LOG_LEVEL }}
-          USE_UMAMOE_API=true
           CHRONO_API_KEY=${{ secrets.CHRONO_API_KEY }}
           UMAMOE_API_KEY=${{ secrets.UMAMOE_API_KEY }}
           ENVEOF"

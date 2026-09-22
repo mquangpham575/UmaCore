@@ -5,25 +5,22 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import io
-import math
 import logging
 from datetime import date, datetime
 import pytz
 
 from models import Club, QuotaHistory
-from scrapers import UmaGitHubScraper
+from scrapers import ClubScraper
 
-
-# Removed _fetch_previous_month_totals
 
 logger = logging.getLogger(__name__)
 
 
 async def _fetch_via_scraper(circle_id: str) -> tuple[dict[str, dict], int, int, int]:
     """
-    Fetch full-month fan progression by using UmaGitHubScraper.
+    Fetch full-month fan progression via ClubScraper.
     """
-    scraper = UmaGitHubScraper(circle_id)
+    scraper = ClubScraper(circle_id)
     parsed_data = await scraper.scrape()
 
     current_day = scraper.get_current_day()
@@ -286,8 +283,6 @@ class ChartCommands(commands.Cog):
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
     progress_chart.autocomplete("club")(club_autocomplete)
-
-    # Removed previous_month command
 
 
 async def setup(bot):

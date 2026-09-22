@@ -44,18 +44,6 @@ class BotSettings:
         return cls(**dict(row))
     
     @classmethod
-    async def get_report_channel_id(cls) -> Optional[int]:
-        """Get the report channel ID"""
-        value = await cls.get('report_channel_id')
-        return int(value) if value else None
-    
-    @classmethod
-    async def get_alert_channel_id(cls) -> Optional[int]:
-        """Get the alert channel ID"""
-        value = await cls.get('alert_channel_id')
-        return int(value) if value else None
-    
-    @classmethod
     async def set_report_channel_id(cls, channel_id: int):
         """Set the report channel ID"""
         await cls.set('report_channel_id', str(channel_id))
@@ -64,18 +52,6 @@ class BotSettings:
     async def set_alert_channel_id(cls, channel_id: int):
         """Set the alert channel ID"""
         await cls.set('alert_channel_id', str(channel_id))
-    
-    @classmethod
-    async def get_monthly_info_message_id(cls) -> Optional[int]:
-        """Get the monthly info message ID"""
-        value = await cls.get('monthly_info_message_id')
-        return int(value) if value else None
-    
-    @classmethod
-    async def get_monthly_info_channel_id(cls) -> Optional[int]:
-        """Get the monthly info channel ID"""
-        value = await cls.get('monthly_info_channel_id')
-        return int(value) if value else None
     
     @classmethod
     async def set_monthly_info_location(cls, channel_id: int, message_id: int):

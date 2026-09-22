@@ -43,5 +43,10 @@ All commands are Discord slash commands (`/`).
 | `/member_status` | Member | View any member's status |
 | `/notification_settings` | Member | Manage DM preferences |
 | `/progress_chart` | Anyone | Fan progression chart this month |
-| `/previous_month` | Anyone | Last month's final fan stats |
+| `/leaderboard` | Anyone | Leaderboard of synced trainers |
+| `/verify` | Anyone | Verify a trainer's stats and current club from uma.moe |
+| `/database_report` | Anyone | Status report from database data only (no scraping) |
+| `/clear_locks` | Admin | Force release all scraping locks |
+| `/set_report_channel_id` | Admin | Set report channel by raw ID (useful for threads) |
+| `/set_alert_channel_id` | Admin | Set alert channel by raw ID (useful for threads) |
 | `/stats` | Author | Bot-wide statistics |

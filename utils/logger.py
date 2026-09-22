@@ -58,8 +58,6 @@ def setup_logging():
     logging.getLogger('__main__').setLevel(logging.INFO)
     
     # Specifically target the loudest ones
-    logging.getLogger('zendriver').setLevel(logging.CRITICAL)
-    logging.getLogger('cdp').setLevel(logging.CRITICAL)
     logging.getLogger('asyncio').setLevel(logging.CRITICAL)
     
     logger.info("Logging configured successfully - filtering third-party noise")

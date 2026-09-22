@@ -13,13 +13,13 @@
 
 ## Overview
 
-Automated Discord bot that tracks club member fan quotas, manages warning systems, and generates daily performance reports. Supports multiple clubs with independent tracking and customizable settings. Data can be fetched via the Uma.moe API or by scraping ChronoGenesis.net.
+Automated Discord bot that tracks club member fan quotas, manages warning systems, and generates daily performance reports. Supports multiple clubs with independent tracking and customizable settings. Club data comes from the ChronoGenesis API, with the Uma.moe API as an automatic fallback.
 
 ## Key Features
 
 - **Multi-Club Support**: Track multiple clubs independently with separate quotas and schedules
-- **Uma.moe API**: Fast, reliable club data fetching via the Uma.moe API (default)
-- **ChronoGenesis Scraping**: Fallback option using Selenium-based web scraping
+- **ChronoGenesis API**: Primary data source (needs `CHRONO_API_KEY`)
+- **Uma.moe API**: Automatic fallback when Chrono is unavailable or no key is set
 - **Dynamic Quota System**: Flexible daily quota requirements with mid-month changes
 - **Bomb Warning System**: 3-strike countdown system for members falling behind
 - **User Linking**: Members can link their Discord accounts for DM notifications
@@ -34,7 +34,6 @@ Automated Discord bot that tracks club member fan quotas, manages warning system
 - Python 3.10 or higher
 - PostgreSQL database ([Neon](https://neon.tech), [Supabase](https://supabase.com), etc.)
 - Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
-- Chrome/Chromium browser (only required if using ChronoGenesis scraper)
 
 ### Installation
 
@@ -68,7 +67,8 @@ Automated Discord bot that tracks club member fan quotas, manages warning system
    DISCORD_TOKEN=your_bot_token_here
    DATABASE_URL=postgresql://user:password@host:5432/database_name
    LOG_LEVEL=INFO
-   USE_UMAMOE_API=true
+   UMAMOE_API_KEY=your_uma_moe_key
+   CHRONO_API_KEY=your_chrono_key   # optional, primary source
    ```
 
 6. **Run the bot**
@@ -107,31 +107,12 @@ The bot will run daily checks automatically at the scheduled time (default: 16:0
 
 ## Data Sources
 
-### Uma.moe API (default)
+Every scrape tries the sources in this order (see [docs/data-sources.md](docs/data-sources.md) for details):
 
-The bot fetches club data directly from the Uma.moe API. This is faster and more reliable than scraping. Requires a numeric `circle_id` per club.
+1. **ChronoGenesis API** - used when `CHRONO_API_KEY` is set. Provides full history and exact join times.
+2. **Uma.moe API** - fallback when Chrono has no key or fails. Requires `UMAMOE_API_KEY`; join days are inferred because the API has no join time.
 
-- Enabled by default (`USE_UMAMOE_API=true`)
-- Set to `false` in `.env` to switch all clubs to ChronoGenesis
-- Each club needs a valid numeric `circle_id` set via `/edit_club`
-- If the API is enabled but a club is missing its `circle_id`, the bot will report an error instead of silently falling back
-
-### Chrono API (Secondary)
-
-The bot can fetch club data directly from the Chrono API using an official authorization key. This serves as a high-performance alternative to browser scraping and a backup to the Uma.moe API.
-
-- This method replaces the legacy GitHub-based tracking logic.
-- Requires `CHRONO_API_KEY` set in your `.env`.
-- Data is fetched directly from `api.chronogenesis.net`.
-- Uses the same `circle_id` as the Uma.moe API.
-
-### ChronoGenesis Scraper
-
-Selenium-based scraper for ChronoGenesis.net. Used when `USE_UMAMOE_API=false`.
-
-- Requires Chrome/Chromium installed
-- Slower and more fragile than the API (depends on page structure and cookie consent)
-- Can be useful as a manual verification source
+Both use the same numeric `circle_id`, set per club with `/add_club` or `/edit_club`. If a club has no `circle_id`, the bot reports an error instead of guessing.
 
 ## Commands
 
@@ -142,11 +123,14 @@ Selenium-based scraper for ChronoGenesis.net. Used when `USE_UMAMOE_API=false`.
 - `/activate_club` - Reactivate a deactivated club
 - `/list_clubs` - View all registered clubs
 - `/edit_club` - Edit club settings (quota, schedule, circle_id, etc.)
+- `/deactivate_club` - Pause tracking for a club
+- `/transfer_club` - Move a club from another server to this one
 
 ### Channel Settings (Admin)
 
 - `/set_report_channel` - Set where daily reports are posted
 - `/set_alert_channel` - Set where alerts are posted
+- `/set_report_channel_id` / `/set_alert_channel_id` - Same, using a raw channel or thread ID
 - `/channel_settings` - View current channel configuration
 - `/post_monthly_info` - Post the monthly info board
 
@@ -155,6 +139,8 @@ Selenium-based scraper for ChronoGenesis.net. Used when `USE_UMAMOE_API=false`.
 - `/quota` - Set daily quota requirement for a club
 - `/quota_history` - View quota changes this month
 - `/force_check` - Manually trigger daily check and report
+- `/recalculate` - Recompute days-behind counts and bombs from existing history
+- `/clear_locks` - Release stuck scraping locks
 
 ### Member Management (Admin)
 
@@ -170,6 +156,10 @@ Selenium-based scraper for ChronoGenesis.net. Used when `USE_UMAMOE_API=false`.
 - `/my_status` - View your own quota status
 - `/member_status` - View any member's quota status
 - `/check_club` - View current club status report from database
+- `/database_report` - Status report using only database data (no scraping)
+- `/progress_chart` - Fan progression chart for the month
+- `/leaderboard` - Leaderboard of synced trainers
+- `/verify` - Verify a trainer's stats and current club from uma.moe
 - `/list_clubs` - View all registered clubs
 - `/list_members` - List active members of a club
 - `/notification_settings` - Manage DM notification preferences
@@ -237,7 +227,7 @@ Each club can be configured independently:
 - Scrape time and timezone
 - Bomb trigger days (default: 3)
 - Bomb countdown days (default: 7)
-- Circle ID (numeric, required when Uma.moe API is enabled)
+- Circle ID (numeric, required by both data sources)
 
 Use `/edit_club` to modify settings after creation.
 
@@ -251,21 +241,16 @@ Use `/edit_club` to modify settings after creation.
 
 **"Missing Circle ID" error**
 
-- Uma.moe API is enabled but the club has no `circle_id` set
+- The club has no `circle_id` set
 - Run `/edit_club club:YourClub circle_id:<numeric_id>` to fix
 - Find your circle_id at https://uma.moe/circles/
 
-**Uma.moe API errors**
+**Scrape fails / no data**
 
 - Verify the `circle_id` is correct and numeric
-- Check if uma.moe is accessible
-- Set `USE_UMAMOE_API=false` in `.env` to temporarily switch to ChronoGenesis
-
-**ChronoGenesis scraping fails**
-
-- Verify Chrome/Chromium is installed (`chromium-browser --version`)
-- Check if ChronoGenesis.net is accessible
-- Cookie consent popup issues may require manual intervention
+- Verify `UMAMOE_API_KEY` (and `CHRONO_API_KEY` if used) are set and valid
+- Check if uma.moe / api.chronogenesis.net are reachable
+- The bot logs which source was used for every scrape; check `bot.log`
 
 **Database errors**
 
@@ -276,37 +261,25 @@ Use `/edit_club` to modify settings after creation.
 ## Project Structure
 
 ```
-umamusume-bot/
+UmaCore/
+├── main.py                # Entry point
 ├── bot/
 │   ├── client.py          # Bot client and setup
 │   ├── tasks.py           # Scheduled tasks
-│   └── commands/          # Command handlers
-│       ├── admin.py       # Admin commands
-│       ├── member.py      # User commands
-│       ├── settings.py    # Channel settings
-│       └── club_management.py
+│   ├── decorators.py      # Permission checks
+│   └── commands/          # Slash command cogs (admin, author, charts, club_management, member, settings, spot)
 ├── config/
-│   ├── database.py        # Database connection
+│   ├── database.py        # Database connection and schema
 │   └── settings.py        # Configuration
-├── models/                # Data models
-│   ├── club.py
-│   ├── member.py
-│   ├── quota_history.py
-│   ├── bomb.py
-│   └── user_link.py
-├── scrapers/              # Data fetching
+├── models/                # Data models (club, member, quota_history, bomb, ...)
+├── scrapers/
 │   ├── base_scraper.py
-│   ├── chronogenesis_scraper.py
-│   └── chrono_api_scraper.py
-├── services/              # Business logic
-│   ├── quota_calculator.py
-│   ├── bomb_manager.py
-│   ├── report_generator.py
-│   └── notification_service.py
-├── utils/                 # Utilities
-│   ├── logger.py
-│   └── timezone_helper.py
-└── main.py                # Entry point
+│   └── club_scraper.py    # ChronoGenesis API with Uma.moe fallback
+├── services/              # Business logic (quota, bombs, reports, notifications, locks)
+├── utils/                 # Logging and helper scripts
+├── events/                # Event data
+├── tests/
+└── docs/                  # MkDocs documentation
 ```
 
 ## Support the Project
@@ -321,4 +294,4 @@ MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-Built with Discord.py, aiohttp, Selenium, PostgreSQL, and asyncpg.
+Built with Discord.py, aiohttp, PostgreSQL, and asyncpg.

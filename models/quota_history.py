@@ -88,17 +88,6 @@ class QuotaHistory:
         return None
 
     @classmethod
-    async def get_for_date(cls, club_id: UUID, date: date) -> List['QuotaHistory']:
-        """Get all quota histories for a specific date in a club"""
-        query = """
-            SELECT id, member_id, club_id, date, cumulative_fans, expected_fans, deficit_surplus, days_behind, daily_gain
-            FROM quota_history
-            WHERE club_id = $1 AND date = $2
-        """
-        rows = await db.fetch(query, club_id, date)
-        return [cls(**dict(row)) for row in rows]
-    
-    @classmethod
     async def check_consecutive_behind_days(cls, member_id: UUID, check_days: int, current_date: date = None) -> int:
         """
         Check how many consecutive days a member has been behind quota.
@@ -211,10 +200,3 @@ class QuotaHistory:
         """
         rows = await db.fetch(query)
         return [dict(row) for row in rows]
-
-    @classmethod
-    async def clear_all(cls, club_id: UUID):
-        """Clear all quota history for a club (for monthly reset)"""
-        query = "DELETE FROM quota_history WHERE club_id = $1"
-        await db.execute(query, club_id)
-        logger.info(f"Cleared all quota history for club {club_id} (monthly reset)")

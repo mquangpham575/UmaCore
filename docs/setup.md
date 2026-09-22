@@ -5,7 +5,7 @@
 - Python 3.10+
 - PostgreSQL database (Neon, Supabase, or local)
 - Discord bot token
-- Chrome/Chromium (Installed automatically in Docker)
+- A Uma.moe API key (`UMAMOE_API_KEY`) and, optionally, a ChronoGenesis key (`CHRONO_API_KEY`)
 
 ## Installation
 
@@ -46,6 +46,8 @@ postgresql://user:password@host:5432/database_name
 DISCORD_TOKEN=your_bot_token_here
 DATABASE_URL=postgresql://user:password@host:5432/database_name
 LOG_LEVEL=INFO
+UMAMOE_API_KEY=your_uma_moe_key
+CHRONO_API_KEY=your_chrono_key   # optional, primary source
 ```
 
 ### 6. Run the bot
@@ -88,7 +90,7 @@ Once the bot is running, do this to get started:
 docker compose up -d --build
 ```
 
-The Docker container includes Chromium and all necessary drivers for the ChronoGenesis scraper to work out of the box.
+The Docker image only needs Python dependencies; both data sources are plain HTTP APIs, so no browser is installed.
 
 ---
 

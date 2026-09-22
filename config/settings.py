@@ -8,7 +8,6 @@ load_dotenv()
 
 # Discord Configuration
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
 
 # Database Configuration
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -17,19 +16,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "mquangpham575/Uma_Club_Fan_Tracking")
 
-# Scraping Configuration
-SCRAPE_TIMEOUT = 90  # seconds
-SCRAPE_RETRY_ATTEMPTS = 3
-SCRAPE_RETRY_DELAY = 1  # seconds
-
-# Timezone Configuration
-TIMEZONE = "UTC"
-DAILY_REPORT_TIME = "10:05"
-
 # Quota Rules
 DAILY_QUOTA = 1_000_000
-BOMB_TRIGGER_DAYS = 3
-BOMB_COUNTDOWN_DAYS = 7
 
 # Logging Configuration
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

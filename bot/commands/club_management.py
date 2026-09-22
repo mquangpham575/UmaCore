@@ -7,7 +7,6 @@ from discord.ext import commands
 from datetime import time, datetime
 import logging
 import pytz
-import asyncio
 
 from models import Club, Member, QuotaRequirement, ClubRankHistory
 from bot.decorators import is_admin_or_authorized
@@ -136,15 +135,7 @@ class ClubManagementCommands(commands.Cog):
             
             # Validate circle_id format
             if not circle_id.isdigit():
-                await interaction.followup.send(
-                    f"❌ Invalid Circle ID format: `{circle_id}`\n\n"
-                    f"The circle_id must be a **numeric ID** from Uma.moe.\n\n"
-                    f"**How to find it:**\n"
-                    f"1. Go to https://uma.moe/circles/\n"
-                    f"2. Search for **{club_name}**\n"
-                    f"3. Click on it and copy the **number** from the URL\n"
-                    f"   Example: `https://uma.moe/circles/860280110` → use `860280110`"
-                )
+                await interaction.followup.send(Club.invalid_circle_id_message(circle_id, club_name))
                 return
             
             # Auto-generate scrape_url from circle_id
@@ -523,16 +514,10 @@ class ClubManagementCommands(commands.Cog):
             
             # Validate circle_id if being updated
             if circle_id is not None and circle_id != "" and not circle_id.isdigit():
-                await interaction.followup.send(
-                    f"❌ Invalid Circle ID format: `{circle_id}`\n\n"
-                    f"The circle_id must be a **numeric ID** from Uma.moe.\n\n"
-                    f"**How to find it:**\n"
-                    f"1. Go to https://uma.moe/circles/\n"
-                    f"2. Search for **{club}**\n"
-                    f"3. Click on it and copy the **number** from the URL\n"
-                    f"   Example: `https://uma.moe/circles/860280110` → use `860280110`\n\n"
-                    f"To remove circle_id (use ChronoGenesis), use an empty string."
-                )
+                await interaction.followup.send(Club.invalid_circle_id_message(
+                    circle_id, club,
+                    extra="\n\nTo remove circle_id (use ChronoGenesis), use an empty string."
+                ))
                 return
             
             updates = {}
@@ -594,10 +579,6 @@ class ClubManagementCommands(commands.Cog):
                 timestamp=discord.utils.utcnow()
             )
             
-            # Determine the effective quota_period for display (may have just been changed)
-            effective_period = updates.get('quota_period', club_obj.quota_period)
-            period_label = {'daily': 'day', 'weekly': 'week', 'biweekly': '2 weeks'}.get(effective_period, 'day')
-
             # Warn if changing quota_period mid-month
             period_warning = ""
             if 'quota_period' in updates and updates['quota_period'] != club_obj.quota_period:

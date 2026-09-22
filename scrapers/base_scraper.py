@@ -1,31 +1,29 @@
 """
-Base scraper abstract class
+Base class for club data scrapers
 """
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from datetime import date
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 class BaseScraper(ABC):
-    """Abstract base class for web scrapers"""
+    """Abstract base class for club data scrapers"""
     
     def __init__(self, url: str):
         self.url = url
-        self._raw_response: Optional[dict] = None
     
     @abstractmethod
-    async def scrape(self) -> Dict[str, List[int]]:
+    async def scrape(self) -> Dict[str, Dict]:
         """
-        Scrape the website and return member data
-        
+        Fetch club member data.
+
         Returns:
-            Dict mapping trainer_name -> list of cumulative fan counts per day
+            Dict mapping trainer_id -> {"name", "trainer_id", "fans", "join_day", "join_day_reliable"}
+            where fans[d - 1] is the fans gained this month through day d.
             Example: {
-                "TrainerName1": [1000000, 2100000, 3050000],  # Day 1, 2, 3
-                "TrainerName2": [950000, 2000000, 3200000]
+                "721295221870": {"name": "TrainerName", "trainer_id": "721295221870",
+                                 "fans": [1000000, 2100000, 3050000],  # Day 1, 2, 3
+                                 "join_day": 1, "join_day_reliable": True}
             }
         """
         pass
@@ -46,33 +44,3 @@ class BaseScraper(ABC):
         """
         pass
     
-    def detect_monthly_reset(self, previous_data: Dict[str, int], current_data: Dict[str, List[int]]) -> bool:
-        """
-        Detect if a monthly reset has occurred
-        
-        Args:
-            previous_data: Dict of trainer_name -> previous cumulative fans
-            current_data: Dict of trainer_name -> list of cumulative fans
-        
-        Returns:
-            True if reset detected, False otherwise
-        """
-        if not previous_data or not current_data:
-            return False
-        
-        # Check if any member's latest cumulative count is significantly lower than before
-        for trainer_name, fan_counts in current_data.items():
-            if trainer_name in previous_data:
-                latest_count = fan_counts[-1] if fan_counts else 0
-                previous_count = previous_data[trainer_name]
-                
-                # If current count is less than half of previous, likely a reset
-                if latest_count < previous_count * 0.5:
-                    logger.info(f"Monthly reset detected: {trainer_name} went from {previous_count} to {latest_count}")
-                    return True
-
-        return False
-
-    def get_raw_response(self) -> Optional[dict]:
-        """Return the raw API/JSON response captured during scraping."""
-        return self._raw_response

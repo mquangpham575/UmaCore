@@ -115,10 +115,3 @@ class QuotaRequirement:
         count = int(result.split()[-1])
         logger.info(f"Deleted {count} quota requirement(s) for club {club_id}: {daily_quota:,} fans/day on {effective_date}")
         return count
-
-    @classmethod
-    async def clear_all(cls, club_id: UUID):
-        """Clear all quota requirements for a club (for monthly reset)"""
-        query = "DELETE FROM quota_requirements WHERE club_id = $1"
-        await db.execute(query, club_id)
-        logger.info(f"Cleared all quota requirements for club {club_id} (monthly reset)")

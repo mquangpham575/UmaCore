@@ -2,6 +2,6 @@
 Scrapers package
 """
 from .base_scraper import BaseScraper
-from .chrono_api_scraper import UmaGitHubScraper
+from .club_scraper import ClubScraper
 
-__all__ = ['BaseScraper', 'UmaGitHubScraper']
+__all__ = ['BaseScraper', 'ClubScraper']

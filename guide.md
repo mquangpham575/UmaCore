@@ -15,7 +15,9 @@ To track your individual progress and receive personal notifications, you must l
 *   **/member_status** — View the status of any other member in the club.
 *   **/check_club** — View the current full club status report without triggering a new scrape.
 *   **/progress_chart** — Generate a visual chart showing everyone's progress this month.
-*   **/previous_month** — See a full recap of last month's final results.
+*   **/leaderboard** — View the leaderboard of synced trainers.
+*   **/verify** — Verify a trainer's stats and current club from uma.moe.
+*   **/database_report** — View a status report using only database data (no scraping).
 *   **/notification_settings** — Customize if you want DMs for bombs or falling behind.
 *   **/list_clubs** — View all registered clubs in this server.
 *   **/list_members** — List all active members currently in the database for a club.
@@ -44,6 +46,7 @@ _ _
 *   **/activate_club** / **/deactivate_club** — Pause or resume tracking for a specific club.
 *   **/set_report_channel** — Select where daily reports are posted.
 *   **/set_alert_channel** — Select where bomb/kick alerts are posted.
+*   **/set_report_channel_id** / **/set_alert_channel_id** — Same, using a raw ID (useful for threads).
 *   **/post_monthly_info** — Create an auto-updating info board in a channel.
 *   **/channel_settings** — View current configuration for a specific club.
 
@@ -57,6 +60,7 @@ _ _
 *   **/quota_history** — View a log of quota changes for the current month.
 *   **/bomb_status** — List all members who currently have an active bomb.
 *   **/recalculate** — Bug fix: Force-recalculate all days-behind counts from history.
+*   **/clear_locks** — Release stuck scraping locks.
 
 **🔄 System & Maintenance**
 *   **/transfer_club** — Pull a club from another server (or legacy data) to this server.
