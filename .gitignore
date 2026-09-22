@@ -252,6 +252,7 @@ geckodriver
 # ============================================
 # Any personal test files
 test_*.py
+tests/fixtures/
 scratch_*.py
 playground/
 
@@ -268,3 +269,5 @@ local_settings.py
 # Local dev/admin scripts
 preview_chart.py
 VPS_SETUP.md
+# Local test-bot launcher (contains a real token/DB URL, never commit)
+run_test_bot.ps1
