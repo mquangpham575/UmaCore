@@ -150,6 +150,13 @@ class AdminCommands(commands.Cog):
 
             set_by = str(interaction.user)
 
+            # Capture the quota that was in effect before this update, so days with no
+            # explicit quota_requirements entry (e.g. before this effective_date) keep
+            # using whatever applied before - not the brand new amount we're about to set.
+            # Without this, a single /quota call (e.g. 8M effective day 6) retroactively
+            # applies 8M to the whole month instead of only from day 6 onward.
+            previous_default_quota = club_obj.daily_quota
+
             # 1. Create or overwrite quota requirement for effective_date
             await QuotaRequirement.create(
                 club_id=club_obj.club_id,
@@ -160,6 +167,24 @@ class AdminCommands(commands.Cog):
 
             # 2. Sync base club settings
             await club_obj.update_settings(daily_quota=amount)
+
+            # 2b. Anchor day 1 of the month with the previous default quota if nothing
+            # already covers it. Without this, a FUTURE recalculation (force_check, the
+            # daily scheduled task) falls back to club.daily_quota for early days - which
+            # we just overwrote above to the new amount, silently re-applying it to days
+            # that should have kept the old quota. Turning the old default into a real
+            # quota_requirements row makes the history durable instead of depending on a
+            # mutable fallback field.
+            month_start = date(today.year, today.month, 1)
+            if effective_date != month_start:
+                existing_day1 = await QuotaRequirement.get_by_effective_date(club_obj.club_id, month_start)
+                if not existing_day1:
+                    await QuotaRequirement.create(
+                        club_id=club_obj.club_id,
+                        effective_date=month_start,
+                        daily_quota=previous_default_quota,
+                        set_by=f"{set_by} (auto-anchor)"
+                    )
 
             # 3. Retroactively recalculate member history if effective date <= today
             recalculated = False
@@ -188,7 +213,7 @@ class AdminCommands(commands.Cog):
                         current_date=today,
                         quota_period=club_obj.quota_period,
                         pre_fetched_requirements=pre_fetched,
-                        default_quota=amount
+                        default_quota=previous_default_quota
                     )
                 recalculated = True
                 recalc_count = len(members)
