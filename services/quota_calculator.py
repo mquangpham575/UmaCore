@@ -270,6 +270,12 @@ class QuotaCalculator:
                 else:
                     scraped_join_date = date(data_date.year, data_date.month - 1, detected_join_day)
 
+            # Chrono's data lags the wall clock by a day, so a member who transferred in after the
+            # data day (e.g. joined Oct 2 JST while the data is for Oct 1) gets a join date past
+            # data_date. That yields 0 days / 0 expected fans. They are on the roster for this
+            # data day, so count them from it.
+            scraped_join_date = min(scraped_join_date, data_date)
+
             # Look up member by trainer_id first, then by name
             if trainer_id:
                 member = await Member.get_by_trainer_id(club_id, trainer_id)
