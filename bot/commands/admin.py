@@ -165,8 +165,20 @@ class AdminCommands(commands.Cog):
                 set_by=set_by
             )
 
-            # 2. Sync base club settings
-            await club_obj.update_settings(daily_quota=amount)
+            # 2. Sync base club settings to the quota that is in force at the END of the month
+            # (the requirement with the latest effective_date), not simply the amount just
+            # entered. Entering an earlier date after a later one (e.g. 8M effective day 6,
+            # then 5M effective day 5) must not overwrite the default, because the default is
+            # what carries over into next month after the monthly reset clears the entries.
+            from config.database import db as _qdb
+            latest_req = await _qdb.fetchrow(
+                "SELECT daily_quota FROM quota_requirements WHERE club_id = $1 "
+                "ORDER BY effective_date DESC, created_at DESC LIMIT 1",
+                club_obj.club_id
+            )
+            await club_obj.update_settings(
+                daily_quota=latest_req['daily_quota'] if latest_req else amount
+            )
 
             # 2b. Anchor day 1 of the month with the previous default quota if nothing
             # already covers it. Without this, a FUTURE recalculation (force_check, the
