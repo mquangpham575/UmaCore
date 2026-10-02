@@ -69,6 +69,22 @@ class ClubScraper(BaseScraper):
             logger.warning(f"Error fetching from Chrono API: {e}")
             return None
 
+    async def fetch_member_count(self) -> Optional[int]:
+        """Current in-game member count of the club, from the same Chrono source as the quota data.
+
+        Uses the club's ``member_num`` (falls back to the number of listed profiles).
+        Returns None when Chrono is unavailable, so callers can pick their own fallback.
+        """
+        async with aiohttp.ClientSession() as session:
+            data = await self._fetch_chrono_data(session)
+        if not data:
+            return None
+        club = (data.get("club") or [{}])[0]
+        count = club.get("member_num")
+        if count is None:
+            count = len(data.get("club_friend_profile") or []) or None
+        return int(count) if count is not None else None
+
     async def _fetch_umamoe_data(self, session: aiohttp.ClientSession, year: int, month: int) -> Optional[dict]:
         """Fetch circle tracking JSON from Uma.moe API as a fallback."""
         api_url = "https://uma.moe/api/v4/circles"

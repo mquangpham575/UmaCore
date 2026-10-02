@@ -425,10 +425,10 @@ class SpotCommands(commands.GroupCog, name="spot"):
                 )
                 return
             import os
-            api_key = os.getenv("UMAMOE_API_KEY")
-            if not api_key:
+            api_key = os.getenv("UMAMOE_API_KEY")  # optional: only used as a fallback to Chrono
+            if not api_key and not os.getenv("CHRONO_API_KEY"):
                 await interaction.followup.send(
-                    "❌ `UMAMOE_API_KEY` is not configured in the environment.",
+                    "❌ Neither `CHRONO_API_KEY` nor `UMAMOE_API_KEY` is configured in the environment.",
                     ephemeral=True
                 )
                 return
@@ -439,8 +439,15 @@ class SpotCommands(commands.GroupCog, name="spot"):
             async with aiohttp.ClientSession() as session:
                 for club in clubs_to_sync:
                     member_count = None
+
+                    # Same source as the quota data (Chrono) first; uma.moe only as a fallback
+                    try:
+                        from scrapers import ClubScraper
+                        member_count = await ClubScraper(club.circle_id).fetch_member_count()
+                    except Exception as e:
+                        logger.error(f"Error querying Chrono for circle {club.circle_id}: {e}")
                     
-                    if api_key:
+                    if member_count is None and api_key:
                         url = f"https://uma.moe/api/v4/circles?circle_id={club.circle_id}"
                         headers = {
                             "X-API-Key": api_key,
@@ -463,7 +470,7 @@ class SpotCommands(commands.GroupCog, name="spot"):
                             logger.error(f"Error querying uma.moe for circle {club.circle_id}: {e}")
 
                     if member_count is None:
-                        failed.append(f"**{club.club_name}** (uma.moe failed)")
+                        failed.append(f"**{club.club_name}** (Chrono and uma.moe failed)")
                         continue
 
                     # Update or Insert, max_members is 30, preserve pending_count (but auto-clear/cap)
@@ -513,17 +520,27 @@ class SpotCommands(commands.GroupCog, name="spot"):
 
             matched_name = existing['club_name']
 
-            # Try to query the uma.moe API first
+            # Use the same source as the quota data (Chrono) first; uma.moe is only a fallback,
+            # because its circle records can lag behind and report a wrong member count.
             member_count = None
+            source = "Chrono API"
+            circle_id = None
             try:
                 from models.club import Club
+                from scrapers import ClubScraper
                 club_obj = await Club.get_by_id(club_id)
                 circle_id = club_obj.circle_id if club_obj else None
-                
+                if circle_id and circle_id.isdigit():
+                    member_count = await ClubScraper(circle_id).fetch_member_count()
+            except Exception as e:
+                logger.error(f"Error querying Chrono for scheduled spot sync on circle {club_name}: {e}")
+
+            try:
                 import os
                 api_key = os.getenv("UMAMOE_API_KEY")
                 
-                if api_key and circle_id and circle_id.isdigit():
+                if member_count is None and api_key and circle_id and circle_id.isdigit():
+                    source = "uma.moe API"
                     url = f"https://uma.moe/api/v4/circles?circle_id={circle_id}"
                     headers = {
                         "X-API-Key": api_key,
@@ -539,7 +556,7 @@ class SpotCommands(commands.GroupCog, name="spot"):
             except Exception as e:
                 logger.error(f"Error querying uma.moe for scheduled spot sync on circle {club_name}: {e}")
 
-            # Fallback to local database active member count if API fails or circle_id is missing
+            # Fallback to local database active member count if both APIs fail or circle_id is missing
             if member_count is None:
                 active_count_row = await db.fetchrow(
                     "SELECT COUNT(*) as cnt FROM members WHERE club_id = $1 AND is_active = TRUE",
@@ -548,7 +565,7 @@ class SpotCommands(commands.GroupCog, name="spot"):
                 member_count = active_count_row['cnt'] if active_count_row else 0
                 logger.info(f"Auto-update spots fallback for {matched_name}: counted {member_count} active database members")
             else:
-                logger.info(f"Auto-updated spots for {matched_name} to {member_count}/30 using uma.moe API")
+                logger.info(f"Auto-updated spots for {matched_name} to {member_count}/30 using {source}")
 
             query = """
                 UPDATE club_spots
