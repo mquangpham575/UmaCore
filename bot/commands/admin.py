@@ -286,6 +286,13 @@ class AdminCommands(commands.Cog):
             if updated:
                 await interaction.followup.send("✅ Monthly info board auto-updated!", ephemeral=True)
 
+            # Trigger tracker force update
+            try:
+                from utils.github_trigger import trigger_tracker_force_update
+                await trigger_tracker_force_update()
+            except Exception as e:
+                logger.error(f"Failed to trigger tracker force update: {e}")
+
         except Exception as e:
             logger.error(f"Error in set_quota: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
