@@ -15,6 +15,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # GitHub Action Configuration
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "mquangpham575/Uma_Club_Fan_Tracking")
+TRACKER_WEBHOOK_URL = os.getenv("TRACKER_WEBHOOK_URL", "http://uma-tracker:8080/trigger")
 
 # Quota Rules
 DAILY_QUOTA = 1_000_000
