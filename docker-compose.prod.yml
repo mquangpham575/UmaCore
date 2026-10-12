@@ -43,8 +43,6 @@ services:
     environment:
       - DATABASE_URL=postgresql://umacore:${POSTGRES_PASSWORD}@postgres:5432/umacore
       - TRACKER_WEBHOOK_URL=http://uma-tracker:8080/trigger
-    volumes:
-      - ./logs:/app/logs
     networks:
       - umacore-net
     deploy:
