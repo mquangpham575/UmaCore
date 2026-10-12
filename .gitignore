@@ -275,3 +275,8 @@ run_test_bot.ps1
 
 # Local off-VM DB backups (real production data, never commit)
 backups/
+
+# Database backups
+backups/*.sql
+backups/*.sql.gz
+!backups/.gitkeep

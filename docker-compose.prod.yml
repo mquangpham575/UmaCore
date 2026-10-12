@@ -57,6 +57,37 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  postgres-backup:
+    image: prodrigestivill/postgres-backup-local:15-alpine
+    container_name: umacore-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: umacore
+      POSTGRES_USER: umacore
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SCHEDULE: "0 3 * * 0"
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_DIR: /backups
+    volumes:
+      - ./backups:/backups
+    networks:
+      - umacore-net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   pgdata:
 
