@@ -16,7 +16,10 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - umacore-net
+      umacore-net:
+        aliases:
+          - postgres
+          - umacore-postgres
     deploy:
       resources:
         limits:
